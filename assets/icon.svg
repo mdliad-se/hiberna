@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>hiberna icon - primary</title>
+  <rect width="512" height="512" rx="140" fill="#2F2BD1"/>
+  <g transform="translate(-14 0)">
+    <g fill="none" stroke="#FFEACF" stroke-width="38" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M178 132V380"/>
+      <path d="M178 262c0-46 36-66 72-66 42 0 68 28 68 70v114"/>
+    </g>
+    <circle cx="366" cy="150" r="24" fill="#FFEACF"/>
+  </g>
+</svg>
