@@ -43,6 +43,63 @@ android {
     sourceSets["androidTest"].kotlin.srcDir("src/androidTest/kotlin")
 }
 
+/**
+ * The privileged entry point is reached by reflection into a private method,
+ * so the compiler cannot see it and R8 does not warn when a `-keep` rule stops
+ * matching. `-printseeds` in proguard-rules.pro records what R8 actually kept;
+ * this task turns a missing `newProcess` seed into a failed release build
+ * instead of an app that installs, launches, and silently does nothing.
+ */
+val verifyShizukuSeeds = tasks.register("verifyShizukuSeeds") {
+    group = "verification"
+    description = "Fails the release build if R8 did not seed Shizuku.newProcess."
+    dependsOn("minifyReleaseWithR8")
+    val seeds = layout.buildDirectory.file("outputs/mapping/release/seeds.txt")
+    outputs.upToDateWhen { false }
+    doLast {
+        val file = seeds.get().asFile
+        check(file.isFile) {
+            "R8 seeds file missing at ${file.absolutePath}: the -printseeds directive " +
+                "in proguard-rules.pro is not being applied"
+        }
+        val seeded = file.readLines()
+        val sdkSeeds = seeded.filter { it.startsWith("rikka.shizuku.") }
+
+        // 1. The privileged entry point itself.
+        val newProcess = sdkSeeds.filter {
+            Regex("""^rikka\.shizuku\.Shizuku:.*\bnewProcess\b""").containsMatchIn(it)
+        }
+        check(newProcess.isNotEmpty()) {
+            "R8 did not keep rikka.shizuku.Shizuku.newProcess (${sdkSeeds.size} Shizuku seeds " +
+                "in ${file.absolutePath}). Every privileged command in this build would fail."
+        }
+
+        // 2. Proof the keep rule is what kept it. R8 infers a keep for
+        //    getDeclaredMethod("newProcess", ...) from the constant strings in
+        //    RealShizukuPlatform, so `newProcess` alone is seeded even with a
+        //    dead keep rule - measured, not assumed. waitForTimeout is only
+        //    ever *reachable*, never *seeded*, unless the package-wide rule
+        //    matches, so it is the honest canary for rule drift.
+        val ruleIsLive = sdkSeeds.any { it.contains("waitForTimeout") }
+        val classCount = sdkSeeds.map { it.substringBefore(':') }.distinct().size
+        check(ruleIsLive && classCount >= 10) {
+            "the `-keep class rikka.shizuku.**` rule in proguard-rules.pro matched almost " +
+                "nothing: $classCount Shizuku classes and ${sdkSeeds.size} members seeded " +
+                "(expect ~22 classes / ~258 members). R8 does not warn about a keep rule " +
+                "that stops matching, so this check is the only signal. See ${file.absolutePath}."
+        }
+
+        logger.lifecycle(
+            "verifyShizukuSeeds: ${newProcess.first()} " +
+                "($classCount classes, ${sdkSeeds.size} members seeded)",
+        )
+    }
+}
+
+tasks.matching { it.name == "assembleRelease" || it.name == "bundleRelease" }.configureEach {
+    dependsOn(verifyShizukuSeeds)
+}
+
 dependencies {
     implementation(libs.core.ktx)
     implementation(libs.lifecycle.runtime.compose)
