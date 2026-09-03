@@ -96,6 +96,12 @@ desktop over USB. hiberna is an independent implementation with a different
 target - Android-only, on-device, no cable - and shares no code with it. If you
 want the desktop workflow, use theirs; it is good.
 
+## Privacy
+
+hiberna collects nothing and **does not declare the `INTERNET` permission**, so
+Android will not let it open a network connection at all. Everything it reads
+stays on your device. Full detail in [PRIVACY.md](PRIVACY.md).
+
 ## Licence
 
 Not yet chosen. Until a licence file is added, no rights are granted beyond
