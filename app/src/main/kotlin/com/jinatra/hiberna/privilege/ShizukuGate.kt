@@ -1,5 +1,6 @@
 package com.jinatra.hiberna.privilege
 
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -73,14 +74,43 @@ internal class ShizukuGate(
      * runs on the main thread - so the actual platform call is dispatched onto
      * [scope] and hopped to [Dispatchers.IO] rather than invoked here, matching
      * the threading contract documented on [ShizukuPlatform].
+     *
+     * [ShizukuPlatform.requestPermission] documents that it throws inside the
+     * SDK when the binder is dead. [scope] carries no
+     * `CoroutineExceptionHandler`, so an uncaught failure here would reach the
+     * thread's default handler as an unattributed crash, disconnected from the
+     * tap that caused it. Catching it here keeps that guarantee local to this
+     * class rather than depending on every [ShizukuPlatform] implementation
+     * happening to swallow its own failures.
      */
     fun request() {
         if (_state.value != PrivilegeState.PERMISSION_DENIED) return
-        scope.launch { withContext(Dispatchers.IO) { platform.requestPermission() } }
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { platform.requestPermission() }
+            }.onFailure { t ->
+                logError("requestPermission failed", t)
+                // The request did not go through; re-evaluate so the gate
+                // reflects reality instead of sitting on stale state.
+                refresh()
+            }
+        }
     }
 
     fun dispose() {
         platform.removeStateListener()
+    }
+
+    /**
+     * `android.util.Log` is a throwing stub under plain JVM unit tests, so
+     * logging must never be the thing that fails [request].
+     */
+    private fun logError(message: String, t: Throwable) {
+        try {
+            Log.e(TAG, message, t)
+        } catch (_: Throwable) {
+            // Deliberately ignored: diagnostics are not worth a crash.
+        }
     }
 
     private fun evaluate(): PrivilegeState = when {
@@ -91,5 +121,9 @@ internal class ShizukuGate(
         !platform.isBinderAlive -> PrivilegeState.SERVICE_NOT_RUNNING
         !platform.checkSelfPermission() -> PrivilegeState.PERMISSION_DENIED
         else -> PrivilegeState.READY
+    }
+
+    private companion object {
+        private const val TAG = "HibernaShizuku"
     }
 }

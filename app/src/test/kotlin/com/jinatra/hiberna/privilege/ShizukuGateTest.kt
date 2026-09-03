@@ -1,5 +1,6 @@
 package com.jinatra.hiberna.privilege
 
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
@@ -242,6 +243,37 @@ class ShizukuGateTest {
             gate.dispose()
             scope.cancel()
         }
+    }
+
+    @Test
+    fun `a throwing request logs, refreshes, and does not escape the scope`() = runBlocking {
+        // ShizukuPlatform.requestPermission documents that it throws inside
+        // the SDK when the binder is dead. The gate's scope carries no
+        // CoroutineExceptionHandler, so an uncaught failure here would reach
+        // the thread's default handler as an unattributed crash. request()
+        // must catch it, log it, and re-evaluate so the gate reflects reality
+        // instead of sitting on stale state.
+        val platform = FakeShizukuPlatform(binderAlive = true, permissionGranted = false, installed = true)
+        var uncaught: Throwable? = null
+        val handler = CoroutineExceptionHandler { _, throwable -> uncaught = throwable }
+        val scope = CoroutineScope(Dispatchers.Default + handler)
+        val gate = ShizukuGate(platform, scope)
+        gate.refresh()
+        assertEquals(PrivilegeState.PERMISSION_DENIED, gate.state.value)
+
+        // The binder dies right as the request is made - exactly the
+        // scenario the SDK's KDoc warns about.
+        platform.requestPermissionThrows = true
+        platform.binderAlive = false
+        gate.request()
+
+        // If the failure is swallowed without a refresh, the state stays
+        // stale at PERMISSION_DENIED forever and this times out.
+        withTimeout(5_000) { gate.state.first { it == PrivilegeState.SERVICE_NOT_RUNNING } }
+        assertEquals("exception must not reach the scope's handler", null, uncaught)
+
+        gate.dispose()
+        scope.cancel()
     }
 
     @Test

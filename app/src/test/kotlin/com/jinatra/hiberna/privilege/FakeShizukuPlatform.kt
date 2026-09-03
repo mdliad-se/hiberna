@@ -23,6 +23,14 @@ internal class FakeShizukuPlatform(
         private set
     val executed = mutableListOf<List<String>>()
 
+    /**
+     * Opt-in: when set, [requestPermission] throws instead of returning
+     * normally, matching the documented Shizuku SDK behaviour of throwing
+     * when the binder is dead. Off by default so every other test keeps
+     * exercising the non-throwing path.
+     */
+    var requestPermissionThrows: Boolean = false
+
     private var listener: (() -> Unit)? = null
     val hasListener: Boolean get() = listener != null
 
@@ -46,7 +54,11 @@ internal class FakeShizukuPlatform(
     override val isInstalled: Boolean get() = observing(installed)
     override val isBinderAlive: Boolean get() = observing(binderAlive)
     override fun checkSelfPermission(): Boolean = observing(permissionGranted)
-    override fun requestPermission() { observing(Unit); requestCount++ }
+    override fun requestPermission() {
+        observing(Unit)
+        requestCount++
+        if (requestPermissionThrows) throw IllegalStateException("binder is dead")
+    }
 
     /**
      * Matches [RealShizukuPlatform]: a second registration replaces the first
