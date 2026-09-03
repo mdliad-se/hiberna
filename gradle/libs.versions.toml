@@ -10,7 +10,6 @@ serialization = "1.7.3"
 shizuku = "13.1.5"
 junit = "4.13.2"
 robolectric = "4.16.1"
-turbine = "1.2.0"
 coroutinesTest = "1.9.0"
 testCore = "1.6.1"
 
@@ -33,7 +32,6 @@ shizuku-api = { module = "dev.rikka.shizuku:api", version.ref = "shizuku" }
 shizuku-provider = { module = "dev.rikka.shizuku:provider", version.ref = "shizuku" }
 junit = { module = "junit:junit", version.ref = "junit" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
-turbine = { module = "app.cash.turbine:turbine", version.ref = "turbine" }
 coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutinesTest" }
 test-core = { module = "androidx.test:core", version.ref = "testCore" }
 test-runner = { module = "androidx.test:runner", version.ref = "testCore" }

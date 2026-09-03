@@ -15,6 +15,13 @@ import java.io.File
 class PrivilegeBoundaryTest {
 
     private val shizukuSdk = "rikka.shizuku"
+
+    // rikka.shizuku is the SDK package this app calls into directly, but
+    // moe.shizuku.server.IRemoteProcess and moe.shizuku.api.BinderContainer
+    // are also on the compile classpath and reach the same remote-process
+    // AIDL - a file outside privilege/ importing those would dissolve the
+    // boundary just as much as importing rikka.shizuku would.
+    private val forbiddenSdkPackages = listOf(shizukuSdk, "moe.shizuku")
     private val forbiddenSpawns = listOf("Runtime.getRuntime()", "ProcessBuilder")
 
     private val mainSources: File by lazy {
@@ -56,11 +63,11 @@ class PrivilegeBoundaryTest {
         val offenders = kotlinFiles()
             .map { relative(it) to it.readText() }
             .filterNot { (path, _) -> path.startsWith("com/jinatra/hiberna/privilege/") }
-            .filter { (_, text) -> text.contains(shizukuSdk) }
+            .filter { (_, text) -> forbiddenSdkPackages.any { text.contains(it) } }
             .map { (path, _) -> path }
 
         assertEquals(
-            "$shizukuSdk may only be referenced from privilege/; found in $offenders",
+            "$forbiddenSdkPackages may only be referenced from privilege/; found in $offenders",
             emptyList<String>(),
             offenders,
         )

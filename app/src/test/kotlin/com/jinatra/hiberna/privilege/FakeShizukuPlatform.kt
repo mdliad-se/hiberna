@@ -46,10 +46,14 @@ internal class FakeShizukuPlatform(
     override val isInstalled: Boolean get() = observing(installed)
     override val isBinderAlive: Boolean get() = observing(binderAlive)
     override fun checkSelfPermission(): Boolean = observing(permissionGranted)
-    override fun requestPermission() { requestCount++ }
+    override fun requestPermission() { observing(Unit); requestCount++ }
 
+    /**
+     * Matches [RealShizukuPlatform]: a second registration replaces the first
+     * rather than throwing. See the threading/registration note on
+     * [ShizukuPlatform.addStateListener].
+     */
     override fun addStateListener(onChanged: () -> Unit) {
-        check(listener == null) { "a state listener is already registered" }
         listener = onChanged
     }
 

@@ -118,8 +118,12 @@ internal class RealShizukuPlatform(
             "Shizuku.newProcess could not be resolved; this build cannot run privileged commands",
         )
 
-        val process = try {
-            method.invoke(null, command.toTypedArray(), null, null) as ShizukuRemoteProcess
+        // Kept as the raw reflection result, not cast yet: if invoke()
+        // actually spawned a remote process but the cast below throws, the
+        // process must still be destroyed. Casting inside the try/finally
+        // below - rather than out here - is what makes that reachable.
+        val rawProcess = try {
+            method.invoke(null, command.toTypedArray(), null, null)
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
             return interrupted(command)
@@ -129,6 +133,8 @@ internal class RealShizukuPlatform(
         }
 
         try {
+            val process = rawProcess as ShizukuRemoteProcess
+
             // Both pipes are drained concurrently. Reading stdout to EOF first
             // deadlocks any command that fills the stderr pipe buffer before
             // closing stdout, and `cmd` subcommands do exactly that on error.
@@ -138,7 +144,12 @@ internal class RealShizukuPlatform(
             // java.lang.Process.waitFor(long, TimeUnit) is NOT overridden by
             // ShizukuRemoteProcess, and the JDK default polls exitValue(),
             // which this wrapper throws over binder. waitForTimeout is the
-            // only bounded wait that works here.
+            // only bounded wait available - but the bound is enforced
+            // *remotely*: the timeout value is forwarded over binder and
+            // system_server is the one that reports back once it elapses. If
+            // the binder transaction itself wedges, rather than the command
+            // merely taking too long, there is no client-side bound here and
+            // this call can block indefinitely.
             val exited = process.waitForTimeout(EXEC_TIMEOUT_MS, TimeUnit.MILLISECONDS)
             if (!exited) {
                 logError("timed out after ${EXEC_TIMEOUT_MS}ms: ${command.joinToString(" ")}", null)
@@ -151,6 +162,30 @@ internal class RealShizukuPlatform(
 
             stdout.join(DRAIN_JOIN_MS)
             stderr.join(DRAIN_JOIN_MS)
+
+            // A join() timing out with no exception is a silent success
+            // look-alike: ShellResult(0, "", "") parses downstream as "ran
+            // fine, nothing restricted". A drain thread still alive after its
+            // join window must downgrade the result rather than pass through
+            // whatever partial text it read.
+            val stuckDrains = listOfNotNull(
+                "stdout".takeIf { stdout.isAlive },
+                "stderr".takeIf { stderr.isAlive },
+            )
+            if (stuckDrains.isNotEmpty()) {
+                logError(
+                    "drain thread(s) still running ${DRAIN_JOIN_MS}ms after $stuckDrains: " +
+                        command.joinToString(" "),
+                    null,
+                )
+                return ShellResult(
+                    ShellExit.EXEC_FAILED,
+                    "",
+                    "shizuku exec: $stuckDrains read timed out after ${DRAIN_JOIN_MS}ms; " +
+                        "output may be incomplete",
+                )
+            }
+
             val exit = process.waitFor()
             val drainFailure = listOfNotNull(stdout.failureNote(), stderr.failureNote())
             return ShellResult(
@@ -166,7 +201,7 @@ internal class RealShizukuPlatform(
             return ShellResult(ShellExit.EXEC_FAILED, "", "shizuku exec failed: ${diagnose(e)}")
         } finally {
             try {
-                process.destroy()
+                (rawProcess as? Process)?.destroy()
             } catch (e: Exception) {
                 logError("destroy failed", e)
             }

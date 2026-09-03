@@ -59,6 +59,12 @@ internal interface ShizukuPlatform {
      * Implementations may deliver one event immediately on registration if the
      * binder is already available - the real one does, because a device where
      * Shizuku was already running produces no *change* to report.
+     *
+     * At most one listener is held at a time. Calling this again replaces the
+     * previous listener rather than adding a second one or throwing - the real
+     * implementation already does this (it un-registers before registering),
+     * so a fake that throws on re-registration would certify behaviour no
+     * device exhibits.
      */
     fun addStateListener(onChanged: () -> Unit)
 

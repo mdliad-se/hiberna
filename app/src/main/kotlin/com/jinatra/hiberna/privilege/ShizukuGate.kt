@@ -6,6 +6,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -35,13 +37,25 @@ internal class ShizukuGate(
     private val _state = MutableStateFlow(PrivilegeState.CHECKING)
     val state: StateFlow<PrivilegeState> = _state.asStateFlow()
 
+    /**
+     * Guards [refresh] so overlapping calls run one at a time. The sticky
+     * listener firing at registration and the container's own explicit
+     * initial refresh routinely overlap; without this, a slow refresh that
+     * started first can still finish last and overwrite a newer result with
+     * a stale one. Serialising means whichever refresh runs last always reads
+     * platform state as of when it actually runs, so it is never stale.
+     */
+    private val refreshMutex = Mutex()
+
     init {
         platform.addStateListener { scope.launch { refresh() } }
     }
 
     /** Re-evaluates privilege. All IPC happens on [Dispatchers.IO]. */
     suspend fun refresh() {
-        _state.value = withContext(Dispatchers.IO) { evaluate() }
+        refreshMutex.withLock {
+            _state.value = withContext(Dispatchers.IO) { evaluate() }
+        }
     }
 
     /**
@@ -54,10 +68,15 @@ internal class ShizukuGate(
      * Answered from the last known [state] rather than by asking the platform,
      * for two reasons: asking would mean blocking binder IPC on the caller's
      * thread, and `Shizuku.requestPermission` throws when the binder is dead.
+     *
+     * Non-suspend so it can be called directly from a Compose `onClick`, which
+     * runs on the main thread - so the actual platform call is dispatched onto
+     * [scope] and hopped to [Dispatchers.IO] rather than invoked here, matching
+     * the threading contract documented on [ShizukuPlatform].
      */
     fun request() {
         if (_state.value != PrivilegeState.PERMISSION_DENIED) return
-        platform.requestPermission()
+        scope.launch { withContext(Dispatchers.IO) { platform.requestPermission() } }
     }
 
     fun dispose() {
