@@ -13,7 +13,6 @@ robolectric = "4.16.1"
 turbine = "1.2.0"
 coroutinesTest = "1.9.0"
 testCore = "1.6.1"
-espresso = "3.6.1"
 
 [libraries]
 core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }

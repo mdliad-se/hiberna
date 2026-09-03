@@ -29,7 +29,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlin { jvmToolchain(17) }
+    kotlin {
+        jvmToolchain(21)
+        compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
+    }
     // buildConfig must be opted in explicitly on AGP 8+ (default flipped to
     // false); HibernaApp.kt reads BuildConfig.DEBUG for the boot assertion.
     buildFeatures { compose = true; buildConfig = true }
@@ -66,16 +69,4 @@ dependencies {
     androidTestImplementation(libs.compose.test.junit4)
     androidTestImplementation(libs.test.runner)
     debugImplementation(libs.compose.test.manifest)
-}
-
-// Robolectric's SDK 36 (targetSdk) shadow requires a Java 21 runtime to load,
-// while the app's own compile/kotlin toolchain stays Java 17 (compileOptions
-// and jvmToolchain above) per spec. JVM 21 runs Java-17-targeted bytecode
-// fine, so only the unit-test *execution* JVM is raised here.
-tasks.withType<Test>().configureEach {
-    javaLauncher.set(
-        javaToolchains.launcherFor {
-            languageVersion.set(JavaLanguageVersion.of(21))
-        }
-    )
 }
