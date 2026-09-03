@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Placeholder theme for Task 2 scaffolding. Task 10 (brutalist UI, per
+         Jinatra Brand Guidelines v1.1) replaces this with the real theme. -->
+    <style name="Theme.Hiberna" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
