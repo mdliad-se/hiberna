@@ -87,25 +87,16 @@ Instrumented tests need a connected device with Shizuku running:
 ./gradlew connectedDebugAndroidTest
 ```
 
-## Prior art
-
-The idea of collecting these controls into one list is not mine. I found it in
-[NoMoreBackground](https://github.com/adil192/no_more_background) by
-[adil192](https://github.com/adil192), which solves the same problem from a
-desktop over USB. hiberna is an independent implementation with a different
-target - Android-only, on-device, no cable - and shares no code with it. If you
-want the desktop workflow, use theirs; it is good.
-
-## Privacy
-
-hiberna collects nothing and **does not declare the `INTERNET` permission**, so
-Android will not let it open a network connection at all. Everything it reads
-stays on your device. Full detail in [PRIVACY.md](PRIVACY.md).
-
 ## Licence
 
-Not yet chosen. Until a licence file is added, no rights are granted beyond
-viewing this source. This will be resolved before the first release.
+[GPL-3.0-or-later](LICENSE). Copyright (C) 2026 Jinatra Ltd.
+
+hiberna is a privileged system tool, so copyleft is deliberate: any fork must
+also be free software with its source available. Nobody gets to take this, bolt
+on telemetry, and ship a closed lookalike that users trust with shell access.
+
+Trademarks are a separate matter and are **not** licensed - fork it under your
+own name. See [NOTICE.md](NOTICE.md).
 
 ## Notices
 
