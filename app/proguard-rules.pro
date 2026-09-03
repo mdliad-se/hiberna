@@ -1,8 +1,11 @@
-# hiberna currently needs no custom R8/ProGuard keep rules.
+# hiberna R8/ProGuard keep rules.
 #
-# Note for later: Task 3 adds reflection into Shizuku's internal
-# `newProcess` method (used to invoke shell commands via Shizuku's
-# privileged process). If that reflective call breaks under R8
-# minification/obfuscation in a release build, a `-keep` rule for the
-# relevant Shizuku-side class/method (or `-keepattributes`/`-dontobfuscate`
-# scoped to it) will need to be added here.
+# Task 3: RealShizukuPlatform.exec reflects into Shizuku's internal, restricted
+# `Shizuku.newProcess(String[], String[], String)` method to invoke privileged
+# shell commands. R8 must not rename, inline, or strip it in a release build —
+# a build that silently loses this method would look like it works (compiles,
+# installs) while every privileged command call fails at runtime.
+-keep class rikka.shizuku.Shizuku {
+    private static rikka.shizuku.ShizukuRemoteProcess newProcess(java.lang.String[], java.lang.String[], java.lang.String);
+}
+-keep class rikka.shizuku.ShizukuRemoteProcess { *; }

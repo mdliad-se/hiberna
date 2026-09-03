@@ -1,6 +1,7 @@
 package com.jinatra.hiberna
 
 import android.app.Application
+import com.jinatra.hiberna.privilege.RealShizukuPlatform
 import com.jinatra.hiberna.shell.ShellBackend
 import com.jinatra.hiberna.shell.ShizukuShellBackend
 
@@ -11,7 +12,7 @@ class HibernaApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        val shell: ShellBackend = ShizukuShellBackend()
+        val shell: ShellBackend = ShizukuShellBackend(RealShizukuPlatform())
         assertRealBackend(shell, isDebug = BuildConfig.DEBUG)
         container = AppContainer(context = this, shell = shell)
     }
