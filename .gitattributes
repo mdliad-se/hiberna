@@ -1,0 +1,15 @@
+# Normalise text in the repo, check out with LF so Gradle and Kotlin sources
+# behave identically on every machine.
+* text=auto eol=lf
+
+# Device output fixtures are byte-exact evidence captured from a real device.
+# Mark them binary so git never touches line endings or trailing whitespace -
+# netpolicy_blacklist.txt in particular carries a significant trailing space.
+app/src/test/resources/fixtures/** -text
+
+# Generated wrapper scripts
+gradlew text eol=lf
+gradlew.bat text eol=crlf
+*.jar binary
+*.png binary
+*.ico binary
