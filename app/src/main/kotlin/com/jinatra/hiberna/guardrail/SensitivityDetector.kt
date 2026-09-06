@@ -4,6 +4,9 @@ package com.jinatra.hiberna.guardrail
 import android.accounts.AccountManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
+import android.os.Build
 import android.provider.AlarmClock
 import android.provider.Telephony
 import android.telecom.TelecomManager
@@ -36,9 +39,16 @@ val DEFAULT_SENSITIVE: Set<String> = setOf(
     // role, intent, or account for "background push transport", so losing
     // it silently breaks notifications for apps that look unrelated to it.
     "com.google.android.gms",
-    // Legacy/forked-AOSP alarm app some non-Google ROMs still ship;
-    // belt-and-suspenders alongside the ACTION_SET_ALARM query below.
-    "com.android.alarmclock",
+    // AOSP's own clock/alarm app (verified: `pm list packages` on a Google
+    // Play emulator image resolves ACTION_SET_ALARM to
+    // com.google.android.deskclock - Google's fork of this exact package,
+    // same "deskclock" suffix, not "alarmclock"). A previous version of this
+    // list carried `com.android.alarmclock`, the pre-ICS legacy id; that
+    // package has not shipped since Android 2.3 and would never match on a
+    // minSdk 30 device. Belt-and-suspenders alongside the ACTION_SET_ALARM
+    // query below, for non-Google builds where a device-visibility quirk
+    // might make the live query return empty.
+    "com.android.deskclock",
     // AOSP's own messaging app - LineageOS and other de-Googled builds
     // default to it; belt-and-suspenders alongside default-SMS detection.
     "com.android.messaging",
@@ -58,13 +68,18 @@ class PlatformSensitivityDetector(
     private val defaultDialerPackage: String? by lazy { resolveDefaultDialerPackage() }
     private val alarmApps: Set<String> by lazy { resolveAlarmApps() }
     private val authenticatorPackages: Set<String> by lazy { resolveAuthenticatorPackages() }
+    private val homePackage: String? by lazy { resolveHomePackage() }
+    private val assistantPackages: Set<String> by lazy { resolveAssistantPackages() }
 
     override suspend fun classify(packageName: String): Sensitivity = withContext(Dispatchers.IO) {
         val flagged = packageName in staticList ||
             packageName == defaultSmsPackage ||
             packageName == defaultDialerPackage ||
             packageName in alarmApps ||
-            packageName in authenticatorPackages
+            packageName in authenticatorPackages ||
+            packageName == homePackage ||
+            packageName in assistantPackages ||
+            hasQualifyingForegroundServiceType(packageName)
         if (flagged) Sensitivity.LIKELY_BREAKS else Sensitivity.NONE
     }
 
@@ -93,6 +108,56 @@ class PlatformSensitivityDetector(
     private fun resolveAuthenticatorPackages(): Set<String> = runCatching {
         AccountManager.get(context).authenticatorTypes.map { it.packageName }.toSet()
     }.getOrDefault(emptySet())
+
+    // The app that renders the home screen / app drawer. Killed in the
+    // background, the user loses their launcher - about as loud a breakage
+    // as this detector can flag.
+    private fun resolveHomePackage(): String? = runCatching {
+        val homeIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+        context.packageManager.resolveActivity(homeIntent, 0)?.activityInfo?.packageName
+    }.getOrNull()
+
+    // Voice-assistant-capable apps. A "voice assistant killed in the
+    // background" is exactly the failure mode this detector exists to catch
+    // - the user asks it a question, gets silence, and never connects that
+    // to the restriction they applied.
+    private fun resolveAssistantPackages(): Set<String> = runCatching {
+        context.packageManager
+            .queryIntentActivities(Intent(Intent.ACTION_ASSIST), 0)
+            .mapNotNull { it.activityInfo?.packageName }
+            .toSet()
+    }.getOrDefault(emptySet())
+
+    // Per-package, unlike every other source above: whether this app
+    // declares a foreground service of a type with a legitimate, ongoing
+    // background need (navigation, health/fitness tracking, music
+    // playback). Queried per-classify rather than cached in a `by lazy`
+    // field because it depends on the package being classified, not on
+    // device-wide state.
+    private fun hasQualifyingForegroundServiceType(packageName: String): Boolean = runCatching {
+        val services = context.packageManager
+            .getPackageInfo(packageName, PackageManager.GET_SERVICES)
+            .services
+            ?: return@runCatching false
+        services.any { serviceInfo -> serviceInfo.foregroundServiceType and QUALIFYING_FGS_TYPES != 0 }
+    }.getOrDefault(false)
+
+    private companion object {
+        // LOCATION and MEDIA_PLAYBACK have existed since API 29, below this
+        // app's minSdk 30, so they are always safe to reference. HEALTH was
+        // only added in API 34; the bit is still a compile-time constant
+        // (inlined by the compiler, so referencing it never throws), but a
+        // service parsed on an API < 34 device can never have that bit set
+        // in the first place, so the SDK_INT guard below documents that
+        // rather than changing behavior.
+        val QUALIFYING_FGS_TYPES: Int = ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH
+            } else {
+                0
+            }
+    }
 }
 
 class FakeSensitivityDetector(private val sensitive: Set<String>) : SensitivityDetector {
