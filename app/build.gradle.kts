@@ -120,6 +120,11 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.coroutines.test)
     testImplementation(libs.test.core)
+    // Compose UI tests run under Robolectric on the JVM (src/test), not
+    // connectedDebugAndroidTest - see .spine/task-9-report.md.
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.test.junit4)
+    testImplementation(libs.test.runner)
 
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.test.junit4)
