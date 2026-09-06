@@ -55,31 +55,31 @@ class InstalledAppRepositoryTest {
     }
 
     @Test
-    fun `resolves uid fresh for an installed package`() = runTest {
+    fun `resolves uid fresh for an installed package, and null for an uninstalled one`() = runTest {
         install("com.example.user", "User App", 10456, system = false)
 
-        assertEquals(10456, PackageManagerAppRepository(context).uidOf("com.example.user"))
+        val repository = PackageManagerAppRepository(context)
+
+        assertEquals(10456, repository.uidOf("com.example.user"))
+        assertNull(repository.uidOf("com.not.installed"))
     }
 
     @Test
-    fun `returns null uid for an uninstalled package`() = runTest {
-        assertNull(PackageManagerAppRepository(context).uidOf("com.not.installed"))
-    }
-
-    @Test
-    fun `excludes apps the user has disabled from the list`() = runTest {
-        // A disabled app cannot run in the foreground or the background, so a
-        // background-restriction toggle for it has no observable effect. It
-        // would be a confusing, dead entry in the list. Policy is still keyed
-        // by package name, so nothing is lost: if the app is re-enabled later
-        // it reappears here and uidOf still resolves it on demand.
+    fun `includes disabled apps in the list, with isEnabled false`() = runTest {
+        // load() must report the truth: a disabled app's stored policy (keyed by
+        // package name) still exists, and hiding the row would hide that state
+        // from the user. `enabled` also conflates user-disabled, admin-disabled
+        // and DISABLED_UNTIL_USED, so the repository cannot and does not try to
+        // infer intent - it just reports the flag.
         install("com.example.user", "User App", 10456, system = false, enabled = true)
         install("com.example.disabled", "Disabled App", 10789, system = false, enabled = false)
 
         val apps = PackageManagerAppRepository(context).load()
 
-        assertTrue(apps.any { it.packageName == "com.example.user" })
-        assertFalse(apps.any { it.packageName == "com.example.disabled" })
+        val enabledApp = apps.first { it.packageName == "com.example.user" }
+        val disabledApp = apps.first { it.packageName == "com.example.disabled" }
+        assertTrue(enabledApp.isEnabled)
+        assertFalse(disabledApp.isEnabled)
     }
 
     @Test
