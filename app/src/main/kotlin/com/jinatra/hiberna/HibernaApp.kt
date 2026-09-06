@@ -11,8 +11,12 @@ import kotlinx.coroutines.SupervisorJob
 
 class HibernaApp : Application() {
 
+    // internal, not private: MainActivityTest substitutes a container wired
+    // over a FakeShizukuPlatform so it can drive PrivilegeState transitions
+    // without a real Shizuku service - see AppContainerTest for the same
+    // pattern applied to AppContainer directly.
     lateinit var container: AppContainer
-        private set
+        internal set
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 

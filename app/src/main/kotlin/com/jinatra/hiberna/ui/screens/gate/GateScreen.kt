@@ -21,8 +21,8 @@ import com.jinatra.hiberna.privilege.PrivilegeState
 import com.jinatra.hiberna.ui.components.BrutalButton
 import com.jinatra.hiberna.ui.components.brutalSurface
 import com.jinatra.hiberna.ui.theme.Cream
+import com.jinatra.hiberna.ui.theme.InkColor
 import com.jinatra.hiberna.ui.theme.Paper
-import com.jinatra.hiberna.ui.theme.Product
 import com.jinatra.hiberna.ui.theme.ShadowMd
 import com.jinatra.hiberna.ui.theme.Teal
 
@@ -35,12 +35,25 @@ import com.jinatra.hiberna.ui.theme.Teal
  * [PrivilegeState.CHECKING] is a real, exhaustively-handled branch, not an
  * afterthought: see [CheckingIndicator] for why it renders a static brand-bar
  * rather than a spinner or nothing at all.
+ *
+ * Every primary action here fills with [Teal], never [com.jinatra.hiberna.ui.theme.Product]:
+ * `Tokens.kt` documents Product as the app-icon/accent colour that never
+ * replaces Teal for primary actions, and `BrutalButton`/`JinatraTheme` both
+ * wire Teal as the primary colour for exactly that reason. [onInstall] is
+ * [PrivilegeState.SHIZUKU_ABSENT]'s primary action - a user with no Shizuku
+ * package cannot resolve that state by retrying alone, so it gets its own
+ * button rather than sharing [onRefresh]'s "Check again" with
+ * [PrivilegeState.SERVICE_NOT_RUNNING]. "Check again" stays available too,
+ * since the user may install Shizuku and come straight back; it renders as
+ * the brand's secondary style - [Paper] fill, [InkColor] text - so it never
+ * competes with the primary action for attention.
  */
 @Composable
 fun GateScreen(
     state: PrivilegeState,
     onRequest: () -> Unit,
     onRefresh: () -> Unit,
+    onInstall: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -60,9 +73,19 @@ fun GateScreen(
             when (state) {
                 PrivilegeState.CHECKING -> CheckingIndicator()
                 PrivilegeState.PERMISSION_DENIED ->
-                    BrutalButton(text = "Grant access", onClick = onRequest, fill = Product)
-                PrivilegeState.SHIZUKU_ABSENT, PrivilegeState.SERVICE_NOT_RUNNING ->
-                    BrutalButton(text = "Check again", onClick = onRefresh, fill = Product)
+                    BrutalButton(text = "Grant access", onClick = onRequest, fill = Teal)
+                PrivilegeState.SERVICE_NOT_RUNNING ->
+                    BrutalButton(text = "Check again", onClick = onRefresh, fill = Teal)
+                PrivilegeState.SHIZUKU_ABSENT ->
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        BrutalButton(text = "Install Shizuku", onClick = onInstall, fill = Teal)
+                        BrutalButton(
+                            text = "Check again",
+                            onClick = onRefresh,
+                            fill = Paper,
+                            contentColor = InkColor,
+                        )
+                    }
                 PrivilegeState.READY -> Unit
             }
         }

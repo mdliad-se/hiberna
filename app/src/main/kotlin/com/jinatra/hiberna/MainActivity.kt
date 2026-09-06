@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package com.jinatra.hiberna
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -17,10 +21,19 @@ import androidx.compose.ui.platform.testTag
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.jinatra.hiberna.privilege.PrivilegeState
+import com.jinatra.hiberna.privilege.RealShizukuPlatform
 import com.jinatra.hiberna.ui.screens.gate.GateScreen
 import com.jinatra.hiberna.ui.theme.Cream
 import com.jinatra.hiberna.ui.theme.JinatraTheme
 import kotlinx.coroutines.launch
+
+/**
+ * Where F-Droid (or the browser it hands the intent to) lists the Shizuku
+ * manager app. Built from [RealShizukuPlatform.SHIZUKU_PACKAGE] - the one
+ * already-defined package id - rather than a second literal copy of it here.
+ */
+internal val SHIZUKU_FDROID_URL =
+    "https://f-droid.org/packages/${RealShizukuPlatform.SHIZUKU_PACKAGE}/"
 
 /**
  * The real entry point Task 2 stubbed out. It shows [GateScreen] for every
@@ -48,6 +61,7 @@ class MainActivity : ComponentActivity() {
                         state = state,
                         onRequest = gate::request,
                         onRefresh = { lifecycleScope.launch { gate.refresh() } },
+                        onInstall = ::openShizukuInstallPage,
                     )
                 }
             }
@@ -60,6 +74,30 @@ class MainActivity : ComponentActivity() {
         // hiberna was backgrounded - the SDK's own listener covers changes
         // that happen while foregrounded, not this gap.
         lifecycleScope.launch { container.gate.refresh() }
+    }
+
+    /**
+     * Sends the user to Shizuku's F-Droid listing. Needs no permission of its
+     * own: `ACTION_VIEW` hands the networking to whatever app - an installed
+     * F-Droid client, or the browser - registers for the URL, so this app
+     * never has to (and per `ManifestPermissionsTest`, never may) declare
+     * INTERNET itself.
+     *
+     * A device with neither an F-Droid client nor a browser cannot handle
+     * this intent; [ActivityNotFoundException] is caught so that leaves the
+     * user back on the gate screen rather than crashing the app.
+     */
+    private fun openShizukuInstallPage() {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(SHIZUKU_FDROID_URL))
+        try {
+            startActivity(intent)
+        } catch (e: ActivityNotFoundException) {
+            Log.w(TAG, "no activity can handle $SHIZUKU_FDROID_URL", e)
+        }
+    }
+
+    private companion object {
+        private const val TAG = "HibernaGate"
     }
 }
 
