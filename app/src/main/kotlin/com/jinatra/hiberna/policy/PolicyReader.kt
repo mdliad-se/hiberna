@@ -19,13 +19,29 @@ class PolicyReader(private val shell: ShellBackend) {
         val whitelist = shell.exec(listOf("dumpsys", "deviceidle", "whitelist"))
         if (!whitelist.isSuccess) return Result.failure(ShellReadException("deviceidle", whitelist.stderr))
 
+        val batteryWhitelisted = parseDeviceIdleWhitelist(whitelist.stdout)
+        if (batteryWhitelisted.isEmpty()) {
+            // The spike confirmed this list is never empty on a real device:
+            // every build ships system packages whitelisted. An empty result
+            // here means the command failed silently, not that nothing is
+            // whitelisted - an empty snapshot and a failed read must never be
+            // the same value.
+            return Result.failure(
+                ShellReadException(
+                    "deviceidle",
+                    "whitelist came back empty; on a real device this list is never empty, " +
+                        "so an empty result means the command failed rather than that nothing is whitelisted",
+                )
+            )
+        }
+
         val netpolicy = shell.exec(listOf("cmd", "netpolicy", "list", "restrict-background-blacklist"))
         if (!netpolicy.isSuccess) return Result.failure(ShellReadException("netpolicy", netpolicy.stderr))
 
         return Result.success(
             CurrentPolicy(
                 appOpsRestricted = parseAppOpsRestricted(appOps.stdout),
-                batteryWhitelisted = parseDeviceIdleWhitelist(whitelist.stdout),
+                batteryWhitelisted = batteryWhitelisted,
                 dataBlockedUids = parseNetPolicyBlacklist(netpolicy.stdout),
             )
         )

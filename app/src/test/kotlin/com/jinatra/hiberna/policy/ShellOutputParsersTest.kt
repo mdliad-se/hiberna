@@ -15,7 +15,7 @@ class ShellOutputParsersTest {
     @Test
     fun `parses appops query output into package names`() {
         val parsed = parseAppOpsRestricted(fixture("appops_query_restricted.txt"))
-        parsed.forEach { assertTrue("not a package name: $it", it.contains('.')) }
+        assertEquals(setOf("com.android.vending", "com.jinatra.finatra"), parsed)
     }
 
     @Test

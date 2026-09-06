@@ -36,11 +36,7 @@ fun parseDeviceIdleWhitelist(raw: String): Set<String> =
         .filter { it.isNotEmpty() }
         .mapNotNull { line ->
             val parts = line.split(',')
-            when {
-                parts.size >= 2 -> parts[1].trim().takeIf { it.contains('.') }
-                line.contains('.') -> line
-                else -> null
-            }
+            if (parts.size >= 2) parts[1].trim().takeIf { it.contains('.') } else null
         }
         .toSet()
 
