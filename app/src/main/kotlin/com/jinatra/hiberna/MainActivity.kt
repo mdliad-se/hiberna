@@ -5,25 +5,33 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.jinatra.hiberna.privilege.PrivilegeState
 import com.jinatra.hiberna.privilege.RealShizukuPlatform
+import com.jinatra.hiberna.ui.screens.applist.AppListScreen
+import com.jinatra.hiberna.ui.screens.detail.AppDetailSheet
 import com.jinatra.hiberna.ui.screens.gate.GateScreen
-import com.jinatra.hiberna.ui.theme.Cream
+import com.jinatra.hiberna.ui.screens.presets.PresetScreen
+import com.jinatra.hiberna.ui.theme.InkColor
 import com.jinatra.hiberna.ui.theme.JinatraTheme
 import kotlinx.coroutines.launch
 
@@ -37,8 +45,12 @@ internal val SHIZUKU_FDROID_URL =
 
 /**
  * The real entry point Task 2 stubbed out. It shows [GateScreen] for every
- * [PrivilegeState] except [PrivilegeState.READY], which gets a clearly-marked
- * placeholder here - the app list itself arrives in Task 11.
+ * [PrivilegeState] except [PrivilegeState.READY], which (Task 14) now shows
+ * the real app list and everything reachable from it - the detail sheet
+ * (Task 13) and the preset screen (Task 12's preset editor), both of which
+ * existed as complete, fully tested composables with no way for a user to
+ * ever reach them before this task. See [ReadyScreen] for the wiring and the
+ * task report for the navigation and back-button reasoning.
  *
  * The one [com.jinatra.hiberna.privilege.ShizukuGate] for the process lives on
  * [AppContainer] (see its kdoc); this activity only ever reads it, never
@@ -56,7 +68,7 @@ class MainActivity : ComponentActivity() {
                 val gate = container.gate
                 val state by gate.state.collectAsStateWithLifecycle()
                 when (state) {
-                    PrivilegeState.READY -> ReadyPlaceholder()
+                    PrivilegeState.READY -> ReadyScreen()
                     else -> GateScreen(
                         state = state,
                         onRequest = gate::request,
@@ -74,6 +86,112 @@ class MainActivity : ComponentActivity() {
         // hiberna was backgrounded - the SDK's own listener covers changes
         // that happen while foregrounded, not this gap.
         lifecycleScope.launch { container.gate.refresh() }
+    }
+
+    /**
+     * Everything behind [PrivilegeState.READY]: the app list, Task 12's
+     * multi-select bulk apply, Task 13's detail sheet, and Task 12's preset
+     * screen - wired together with hand-rolled navigation. See the task
+     * report for why no navigation library was added for four screens.
+     *
+     * [nav] is a plain `remember`ed value, not `rememberSaveable`: it is pure
+     * navigation *position*, not data - every screen it points at re-derives
+     * its content from [AppListViewModel]/the repositories on every
+     * recomposition, so losing it across a process death or a config change
+     * costs the user nothing worse than landing back on the list, which is
+     * where they started anyway. See the task report for the fuller
+     * reasoning.
+     *
+     * The detail sheet renders as an overlay above [AppListScreen] rather
+     * than replacing it, per the brief - a translucent scrim behind it both
+     * dims the list and gives a second way to dismiss (tapping outside it),
+     * alongside the system back gesture [BackHandler] below wires. The
+     * preset screen, by contrast, replaces the list outright: it is one of
+     * this app's four top-level surfaces (gate / list / detail / presets),
+     * not something that presents over another.
+     *
+     * **The back button (judgement call - see the task report for the fuller
+     * reasoning):** with hand-rolled navigation, Android's back gesture would
+     * otherwise close the whole app from the detail sheet or the preset
+     * screen - there is no `NavController` here to intercept it for free.
+     * [BackHandler] is enabled for exactly as long as [nav] is not
+     * [Nav.List], and always returns to it; it is never enabled while already
+     * on the list, so the system's own "exit the app" behaviour survives
+     * completely unchanged at the one place a user actually expects it.
+     */
+    @Composable
+    private fun ReadyScreen() {
+        val model = remember { container.appListViewModel() }
+        val listState by model.state.collectAsStateWithLifecycle()
+        val selected by model.selected.collectAsStateWithLifecycle()
+        val presets by container.presets.presets.collectAsStateWithLifecycle(initialValue = emptyList())
+        val overridden by container.overrides.overridden.collectAsStateWithLifecycle(initialValue = emptySet())
+        var nav by remember { mutableStateOf<Nav>(Nav.List) }
+
+        LaunchedEffect(Unit) { model.load() }
+
+        BackHandler(enabled = nav != Nav.List) { nav = Nav.List }
+
+        when (nav) {
+            Nav.Presets -> PresetScreen(
+                presets = presets,
+                onSave = { preset -> lifecycleScope.launch { container.presets.save(preset) } },
+                onDelete = { id -> lifecycleScope.launch { container.presets.delete(id) } },
+            )
+
+            Nav.List, is Nav.Detail -> Box(modifier = Modifier.fillMaxSize()) {
+                AppListScreen(
+                    state = listState,
+                    onQueryChange = model::onQueryChange,
+                    onActivityChange = { pkg, activity ->
+                        lifecycleScope.launch { model.setActivity(pkg, activity) }
+                    },
+                    onRowClick = { pkg -> nav = Nav.Detail(pkg) },
+                    selected = selected,
+                    presets = presets,
+                    // Mirrors AppListSelectionWiringTest's own wiring: BulkBar
+                    // shows one guardrail preview regardless of which preset
+                    // the user ultimately taps, so the first preset stands in
+                    // for "how many of the current selection would be skipped
+                    // right now" - see AppListViewModel.skippedCount's own doc.
+                    skippedCount = presets.firstOrNull()?.let { model.skippedCount(it, overridden) } ?: 0,
+                    onToggleSelection = model::toggleSelection,
+                    onApplyPreset = { preset -> lifecycleScope.launch { model.applyPreset(preset) } },
+                    onCancelSelection = model::clearSelection,
+                    onOpenPresets = { nav = Nav.Presets },
+                )
+
+                val detailPackage = (nav as? Nav.Detail)?.packageName
+                val row = detailPackage?.let { pkg -> listState.rows.firstOrNull { it.app.packageName == pkg } }
+                if (row != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(InkColor.copy(alpha = 0.5f))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = { nav = Nav.List },
+                            ),
+                    )
+                    AppDetailSheet(
+                        row = row,
+                        overridden = row.app.packageName in overridden,
+                        onActivityChange = { activity ->
+                            lifecycleScope.launch { model.setActivity(row.app.packageName, activity) }
+                        },
+                        onDataChange = { blocked ->
+                            lifecycleScope.launch { model.setDataBlocked(row.app.packageName, blocked) }
+                        },
+                        onOverrideChange = { value ->
+                            lifecycleScope.launch { container.overrides.setOverridden(row.app.packageName, value) }
+                        },
+                        onOpenSettings = { openAppSettings(row.app.packageName) },
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                    )
+                }
+            }
+        }
     }
 
     /**
@@ -96,24 +214,35 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Opens Android's own per-app settings page for [packageName] - a plain,
+     * unprivileged Intent that must never go through `ShellBackend`/Shizuku
+     * (see [AppDetailSheet]'s kdoc: only `shell`/`privilege` may touch either,
+     * and this is neither). Follows [openShizukuInstallPage]'s exact shape:
+     * this Activity owns the Intent, and [ActivityNotFoundException] is
+     * caught so a device with nothing registered for this action does not
+     * crash.
+     */
+    private fun openAppSettings(packageName: String) {
+        val intent = Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.parse("package:$packageName"),
+        )
+        try {
+            startActivity(intent)
+        } catch (e: ActivityNotFoundException) {
+            Log.w(TAG, "no activity can handle app settings for $packageName", e)
+        }
+    }
+
+    /** Hand-rolled navigation state for [ReadyScreen] - see its kdoc. */
+    private sealed interface Nav {
+        data object List : Nav
+        data class Detail(val packageName: String) : Nav
+        data object Presets : Nav
+    }
+
     private companion object {
         private const val TAG = "HibernaGate"
-    }
-}
-
-/** Task 11 replaces this with the real app list. */
-@Composable
-private fun ReadyPlaceholder() {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Cream)
-            .testTag("ready-placeholder"),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = "Ready - app list arrives in Task 11",
-            style = MaterialTheme.typography.bodyLarge,
-        )
     }
 }

@@ -215,6 +215,29 @@ class AppListScreenTest {
     }
 
     @Test
+    fun `tapping Presets reports the request rather than only being decorative`() {
+        // Task 14: the preset screen exists and is fully tested (PresetScreenTest)
+        // but was unreachable from anywhere a user could actually tap - this is
+        // the one entry point into it.
+        var opened = 0
+        compose.setContent {
+            JinatraTheme {
+                AppListScreen(
+                    state = AppListState(rows = listOf(gameRow)),
+                    onQueryChange = {},
+                    onActivityChange = { _, _ -> },
+                    onRowClick = {},
+                    onOpenPresets = { opened++ },
+                )
+            }
+        }
+
+        compose.onNodeWithText("Presets").performClick()
+
+        assertEquals(1, opened)
+    }
+
+    @Test
     fun `shows an empty state rather than a blank screen when nothing matches`() {
         compose.setContent {
             JinatraTheme {

@@ -24,6 +24,22 @@ internal class FakeShizukuPlatform(
     val executed = mutableListOf<List<String>>()
 
     /**
+     * Per-command results, keyed by a substring match against the joined
+     * argv - the same convention [com.jinatra.hiberna.shell.FakeShellBackend.script]
+     * uses. Added for Task 14's wiring tests, which need `appops`,
+     * `deviceidle` and `netpolicy` to each answer differently in one test
+     * rather than sharing a single [scriptedResult] for every command. A
+     * command matching no [script] entry falls back to [scriptedResult], so
+     * every pre-existing test that only ever sets that one field keeps
+     * working unchanged.
+     */
+    private val scripted = linkedMapOf<String, ShellResult>()
+
+    fun script(match: String, result: ShellResult) {
+        scripted[match] = result
+    }
+
+    /**
      * Opt-in: when set, [requestPermission] throws instead of returning
      * normally, matching the documented Shizuku SDK behaviour of throwing
      * when the binder is dead. Off by default so every other test keeps
@@ -74,6 +90,8 @@ internal class FakeShizukuPlatform(
     override fun exec(command: List<String>): ShellResult {
         observedThreads += Thread.currentThread().name
         executed += command
-        return scriptedResult
+        val joined = command.joinToString(" ")
+        val hit = scripted.entries.firstOrNull { joined.contains(it.key) }
+        return hit?.value ?: scriptedResult
     }
 }

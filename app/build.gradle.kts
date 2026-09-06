@@ -129,5 +129,8 @@ dependencies {
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.test.junit4)
     androidTestImplementation(libs.test.runner)
+    // ShizukuSmokeTest is plain JUnit4 (org.junit.Test/Assert/Assume), not a
+    // Compose test - androidTest had no JUnit dependency of its own before it.
+    androidTestImplementation(libs.junit)
     debugImplementation(libs.compose.test.manifest)
 }

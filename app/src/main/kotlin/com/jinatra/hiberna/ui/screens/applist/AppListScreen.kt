@@ -7,17 +7,20 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
 import com.jinatra.hiberna.policy.BackgroundActivity
 import com.jinatra.hiberna.preset.Preset
+import com.jinatra.hiberna.ui.components.BrutalButton
 import com.jinatra.hiberna.ui.components.brutalSurface
 import com.jinatra.hiberna.ui.theme.InkColor
 import com.jinatra.hiberna.ui.theme.Paper
@@ -67,6 +70,13 @@ import com.jinatra.hiberna.ui.theme.Signal
  * non-empty, and its own cancel action is [onCancelSelection], which clears
  * the selection and - since that emptiness is what defines selection mode -
  * exits it in the same step.
+ *
+ * [onOpenPresets] (Task 14) is the one entry point into `PresetScreen` -
+ * without it, a fully built and tested screen had no way for a user to ever
+ * reach it, exactly the "unreachable" gap the task report calls out. It sits
+ * in a header row above the search field, its own 16.dp top margin away from
+ * that field's shadowed [brutalSurface] (brand v1.1: two shadowed elements
+ * never closer than 16.dp).
  */
 @Composable
 fun AppListScreen(
@@ -80,9 +90,24 @@ fun AppListScreen(
     onToggleSelection: (String) -> Unit = {},
     onApplyPreset: (Preset) -> Unit = {},
     onCancelSelection: () -> Unit = {},
+    onOpenPresets: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(text = "hiberna", style = MaterialTheme.typography.titleLarge)
+            BrutalButton(
+                text = "Presets",
+                onClick = onOpenPresets,
+                fill = Paper,
+                contentColor = InkColor,
+            )
+        }
+
         BasicTextField(
             value = state.query,
             onValueChange = onQueryChange,
@@ -90,6 +115,7 @@ fun AppListScreen(
             cursorBrush = SolidColor(InkColor),
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(top = 16.dp)
                 .brutalSurface(fill = Paper, shadow = ShadowSm),
             decorationBox = { innerTextField ->
                 Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {

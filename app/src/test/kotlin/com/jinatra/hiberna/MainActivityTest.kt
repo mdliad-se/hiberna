@@ -4,7 +4,7 @@ package com.jinatra.hiberna
 import android.os.Looper
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
-import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.test.core.app.ApplicationProvider
 import com.jinatra.hiberna.privilege.FakeShizukuPlatform
 import com.jinatra.hiberna.privilege.PrivilegeState
@@ -20,6 +20,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.android.controller.ActivityController
 
 /**
  * `MainActivity` carries this app's most common flow - open the app, leave to
@@ -43,9 +44,30 @@ class MainActivityTest {
 
     private val app: HibernaApp get() = ApplicationProvider.getApplicationContext()
     private val scopes = mutableListOf<CoroutineScope>()
+    private val controllers = mutableListOf<ActivityController<MainActivity>>()
+
+    /**
+     * Every [Robolectric.buildActivity] built here MUST be torn down, not
+     * just have its [CoroutineScope]s cancelled: `ReadyScreen`'s
+     * `LaunchedEffect`/`collectAsStateWithLifecycle` collectors keep running
+     * as long as the Activity's own lifecycle sits at STARTED/RESUMED, which
+     * it does forever unless something drives it through
+     * `pause()`/`stop()`/`destroy()`. A test that never does that leaves a
+     * live Compose root behind; `createEmptyComposeRule`'s idling check waits
+     * for *every* registered root to settle, so each undestroyed root from an
+     * earlier test accumulates and can eventually make a *later*, unrelated
+     * test's `performClick()`/assertion spin past its own timeout - the
+     * `androidx.test.espresso.AppNotIdleException` a previous run of this
+     * suite hit, diagnosed by bisecting a from-scratch reproduction until
+     * only "activity never torn down between tests" remained. See the task
+     * report for the fuller writeup.
+     */
+    private fun buildAndTrack(): ActivityController<MainActivity> =
+        Robolectric.buildActivity(MainActivity::class.java).also { controllers += it }
 
     @After
     fun tearDown() {
+        controllers.forEach { runCatching { it.pause().stop().destroy() } }
         scopes.forEach { it.cancel() }
     }
 
@@ -95,18 +117,21 @@ class MainActivityTest {
     fun `a non-READY state shows the gate screen`() {
         installContainer(FakeShizukuPlatform(binderAlive = false, installed = false, permissionGranted = false))
 
-        Robolectric.buildActivity(MainActivity::class.java).setup()
+        buildAndTrack().setup()
 
-        compose.onNodeWithTag("ready-placeholder").assertDoesNotExist()
+        // Task 14 replaced Task 10's placeholder with the real app list;
+        // "Search apps" (AppListScreen's own search field) is now the READY
+        // signal a non-READY state must never show.
+        compose.onNodeWithText("Search apps").assertDoesNotExist()
     }
 
     @Test
     fun `READY does not show the gate screen`() {
         installContainer(FakeShizukuPlatform(binderAlive = true, installed = true, permissionGranted = true))
 
-        Robolectric.buildActivity(MainActivity::class.java).setup()
+        buildAndTrack().setup()
 
-        compose.onNodeWithTag("ready-placeholder").assertIsDisplayed()
+        compose.onNodeWithText("Search apps").assertIsDisplayed()
     }
 
     @Test
@@ -114,8 +139,8 @@ class MainActivityTest {
         val platform = FakeShizukuPlatform(binderAlive = false, installed = true, permissionGranted = false)
         val container = installContainer(platform)
 
-        val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
-        compose.onNodeWithTag("ready-placeholder").assertDoesNotExist()
+        val controller = buildAndTrack().setup()
+        compose.onNodeWithText("Search apps").assertDoesNotExist()
 
         // The user starts Shizuku and grants access while hiberna is
         // backgrounded. The SDK's own listener only covers changes made while
@@ -128,6 +153,6 @@ class MainActivityTest {
 
         awaitState(container, PrivilegeState.READY)
         compose.waitForIdle()
-        compose.onNodeWithTag("ready-placeholder").assertIsDisplayed()
+        compose.onNodeWithText("Search apps").assertIsDisplayed()
     }
 }
