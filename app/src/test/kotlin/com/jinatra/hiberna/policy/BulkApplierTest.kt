@@ -9,6 +9,7 @@ import com.jinatra.hiberna.shell.FakeShellBackend
 import com.jinatra.hiberna.shell.ShellResult
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -74,5 +75,38 @@ class BulkApplierTest {
 
         assertEquals(listOf("com.example.sms"), outcome.applied)
         assertTrue(outcome.failed.containsKey("com.example.game"))
+    }
+
+    @Test
+    fun `a partially-applied package keeps the levers that already landed, not just the failing one`() = runTest {
+        // appops and the battery whitelist both succeed for com.example.game;
+        // only the data lever (netpolicy) fails - see PolicyApplier's fixed
+        // ordering. F3: BulkOutcome must not throw away "appops, battery"
+        // just because the batch as a whole reports this package as failed.
+        val shell = FakeShellBackend().apply {
+            script("appops set", ShellResult(0, "", ""))
+            script("deviceidle whitelist", ShellResult(0, "", ""))
+            script("netpolicy", ShellResult(1, "", "permission denied"))
+        }
+        val reckless = frugal.copy(skipSensitive = false)
+
+        val outcome = bulk(shell).apply(listOf(game), reckless, overridden = emptySet())
+
+        val failure = outcome.failed.getValue("com.example.game")
+        assertEquals("data", failure.lever)
+        assertEquals("permission denied", failure.reason)
+        assertEquals(listOf("appops", "battery"), failure.applied)
+    }
+
+    @Test
+    fun `skippedByGuardrail agrees with what apply actually skips`() = runTest {
+        // F2: the guardrail preview and BulkApplier's own decision must be
+        // the exact same predicate, not two copies that can drift apart.
+        assertTrue(sms.isSkippedByGuardrail(frugal, overridden = emptySet()))
+        assertFalse(game.isSkippedByGuardrail(frugal, overridden = emptySet()))
+        assertFalse(sms.isSkippedByGuardrail(frugal, overridden = setOf("com.example.sms")))
+
+        val outcome = bulk(okShell()).apply(listOf(game, sms), frugal, overridden = emptySet())
+        assertEquals(listOf("com.example.sms"), outcome.skipped)
     }
 }

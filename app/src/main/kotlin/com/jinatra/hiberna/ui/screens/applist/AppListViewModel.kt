@@ -13,6 +13,7 @@ import com.jinatra.hiberna.policy.BulkOutcome
 import com.jinatra.hiberna.policy.BulkTarget
 import com.jinatra.hiberna.policy.PolicyApplier
 import com.jinatra.hiberna.policy.PolicyReader
+import com.jinatra.hiberna.policy.isSkippedByGuardrail
 import com.jinatra.hiberna.preset.OverrideRepository
 import com.jinatra.hiberna.preset.Preset
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -111,6 +112,23 @@ class AppListViewModel(
         _selected.value = emptySet()
     }
 
+    /**
+     * How many of the *currently selected* packages [preset] would refuse to
+     * touch, per the guardrail - for [BulkBar]'s preview text, shown before
+     * the user commits to a preset. This calls the exact same
+     * [isSkippedByGuardrail] predicate [BulkApplier.apply] uses to actually
+     * decide, rather than re-deriving "is this app sensitive and not
+     * overridden" here - see that function's doc for why a second copy of
+     * this decision would risk drifting from what apply time actually does.
+     */
+    fun skippedCount(preset: Preset, overridden: Set<String>): Int {
+        val targetPackages = _selected.value
+        return all.count { row ->
+            row.app.packageName in targetPackages &&
+                BulkTarget(row.app.packageName, row.sensitivity).isSkippedByGuardrail(preset, overridden)
+        }
+    }
+
     fun dismissBulkSummary() {
         _state.value = _state.value.copy(bulkSummary = null)
     }
@@ -203,8 +221,17 @@ class AppListViewModel(
                 "Open one to override it."
         }
         if (outcome.failed.isNotEmpty()) {
-            val named = outcome.failed.entries.take(MAX_NAMED_FAILURES).joinToString { (pkg, reason) ->
-                "${labelFor(pkg)} ($reason)"
+            val named = outcome.failed.entries.take(MAX_NAMED_FAILURES).joinToString { (pkg, failure) ->
+                // A package can be "failed" and partially changed at the same
+                // time - there is no rollback (see BulkFailure's doc) - so a
+                // failure whose earlier levers already landed is described as
+                // partial, not as an outright, nothing-happened failure.
+                val already = if (failure.applied.isNotEmpty()) {
+                    " - already changed ${failure.applied.joinToString()}"
+                } else {
+                    ""
+                }
+                "${labelFor(pkg)} (${failure.lever}: ${failure.reason}$already)"
             }
             val more = outcome.failed.size - MAX_NAMED_FAILURES
             val suffix = if (more > 0) " and $more more" else ""

@@ -17,18 +17,49 @@ data class BulkTarget(
 )
 
 /**
+ * Per-package detail for one entry in [BulkOutcome.failed]: which lever
+ * failed, why, and - critically - [applied], the levers that already landed
+ * for this package before that failure (see [ApplyResult.Failed.applied]).
+ * There is no rollback, so a package can be "failed" and partially changed at
+ * the same time; dropping [applied] here would leave a caller unable to tell
+ * those two cases apart and force it to describe a partially-applied app as
+ * an outright failure.
+ */
+data class BulkFailure(
+    val lever: String,
+    val reason: String,
+    val applied: List<String> = emptyList(),
+)
+
+/**
  * What actually happened across a whole batch. There is no rollback (see
  * [ApplyResult.Failed]'s own doc), so this cannot be a single pass/fail
  * verdict: [applied] landed, [skipped] were deliberately left alone by the
- * guardrail, and [failed] names, per package, which lever failed and why -
+ * guardrail, and [failed] names, per package, which lever failed, why, and
+ * what (if anything) already landed for that package - see [BulkFailure] -
  * a caller that only reported "some apps failed" would leave the user
  * unable to tell which ones actually changed.
  */
 data class BulkOutcome(
     val applied: List<String>,
     val skipped: List<String>,
-    val failed: Map<String, String>,
+    val failed: Map<String, BulkFailure>,
 )
+
+/**
+ * The one guardrail predicate: a [BulkTarget] is skipped when [preset] asks
+ * to skip sensitive apps, this target is sensitive, and the user has not
+ * explicitly overridden this *specific* package (an override must never
+ * leak across apps - see the class doc on [BulkApplier]).
+ *
+ * This is `internal`, not private, and is the only place this decision is
+ * expressed: [BulkApplier.apply] and [com.jinatra.hiberna.ui.screens.applist.AppListViewModel.skippedCount]
+ * both call this exact function rather than each maintaining their own copy,
+ * so a guardrail-preview count shown before the user taps a preset can never
+ * drift from what actually gets skipped at apply time.
+ */
+internal fun BulkTarget.isSkippedByGuardrail(preset: Preset, overridden: Set<String>): Boolean =
+    preset.skipSensitive && sensitivity == Sensitivity.LIKELY_BREAKS && packageName !in overridden
 
 /**
  * Applies one [Preset] across many packages.
@@ -50,12 +81,11 @@ class BulkApplier(private val applier: PolicyApplier) {
     ): BulkOutcome {
         val applied = mutableListOf<String>()
         val skipped = mutableListOf<String>()
-        val failed = linkedMapOf<String, String>()
+        val failed = linkedMapOf<String, BulkFailure>()
 
         for (target in targets) {
             val pkg = target.packageName
-            val isSensitive = target.sensitivity == Sensitivity.LIKELY_BREAKS
-            if (preset.skipSensitive && isSensitive && pkg !in overridden) {
+            if (target.isSkippedByGuardrail(preset, overridden)) {
                 skipped += pkg
                 continue
             }
@@ -69,7 +99,8 @@ class BulkApplier(private val applier: PolicyApplier) {
             )
             when (result) {
                 is ApplyResult.Success -> applied += pkg
-                is ApplyResult.Failed -> failed[pkg] = "${result.lever}: ${result.reason}"
+                is ApplyResult.Failed ->
+                    failed[pkg] = BulkFailure(result.lever, result.reason, result.applied)
             }
         }
 

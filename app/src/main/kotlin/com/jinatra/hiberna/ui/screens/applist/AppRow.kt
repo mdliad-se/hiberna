@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package com.jinatra.hiberna.ui.screens.applist
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,6 +17,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.jinatra.hiberna.guardrail.Sensitivity
 import com.jinatra.hiberna.policy.BackgroundActivity
@@ -25,6 +28,7 @@ import com.jinatra.hiberna.ui.theme.Cream
 import com.jinatra.hiberna.ui.theme.InkColor
 import com.jinatra.hiberna.ui.theme.Mist
 import com.jinatra.hiberna.ui.theme.Paper
+import com.jinatra.hiberna.ui.theme.Product
 import com.jinatra.hiberna.ui.theme.ShadowSm
 import com.jinatra.hiberna.ui.theme.Teal
 
@@ -76,25 +80,57 @@ import com.jinatra.hiberna.ui.theme.Teal
  * - see that class's doc - but are not added here yet: no test in this task
  * calls for one, and a `Drawable` fetched per row still needs a safe
  * degrade-to-box path before it belongs in a real device screen.
+ *
+ * [selected] and [onLongClick] are Task 12's multi-select affordance: a
+ * long-press enters selection mode and selects this row, and (while any row
+ * is selected) a normal tap toggles this row's selection instead of calling
+ * [onClick] - the caller (`AppListScreen`) is the one that decides which
+ * behaviour a tap gets, since only it knows whether the selection is
+ * currently non-empty; this composable only ever renders whatever `onClick`
+ * it is handed. A selected row keeps its 3px border and its own shadow (it is
+ * not a slab inside another slab, so brand v1.1's "drop the shadow" rule does
+ * not apply here) but swaps its fill to [Product] - hiberna's own accent
+ * colour, reserved for the app's accent surfaces rather than a primary action
+ * button - and marks `semantics { selected = true }` so a screen reader
+ * announces the state change too, not just the colour. [Signal] is never
+ * used for this: it is reserved for one highlight per screen, already spent
+ * on the error banner, and multi-select can highlight many rows at once.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AppRow(
     row: AppRowState,
     onClick: () -> Unit,
     onActivityChange: (BackgroundActivity) -> Unit,
     modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    onLongClick: () -> Unit = {},
 ) {
+    // Captured under a differently-named local before entering the
+    // `semantics {}` lambda below: inside that lambda, an unqualified
+    // `selected` could otherwise resolve to the block's own implicit
+    // `SemanticsPropertyReceiver.selected` extension property rather than
+    // this composable's own `selected` parameter, given they share a name.
+    val isSelected = selected
+    val fill = when {
+        isSelected -> Product
+        row.app.isSystem -> Mist
+        else -> Paper
+    }
+    val contentColor = if (isSelected) Paper else InkColor
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .brutalSurface(fill = if (row.app.isSystem) Mist else Paper, shadow = ShadowSm)
-            .clickable(onClick = onClick)
+            .semantics { if (isSelected) this.selected = true }
+            .brutalSurface(fill = fill, shadow = ShadowSm)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(16.dp),
     ) {
-        Text(text = row.app.label, style = MaterialTheme.typography.titleLarge)
+        Text(text = row.app.label, style = MaterialTheme.typography.titleLarge, color = contentColor)
         Text(
             text = row.app.packageName,
             style = MaterialTheme.typography.labelSmall,
+            color = contentColor,
         )
         if (row.sensitivity == Sensitivity.LIKELY_BREAKS) {
             Text(

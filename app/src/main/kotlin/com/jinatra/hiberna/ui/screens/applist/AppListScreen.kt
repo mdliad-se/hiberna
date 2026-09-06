@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
 import com.jinatra.hiberna.policy.BackgroundActivity
+import com.jinatra.hiberna.preset.Preset
 import com.jinatra.hiberna.ui.components.brutalSurface
 import com.jinatra.hiberna.ui.theme.InkColor
 import com.jinatra.hiberna.ui.theme.Paper
@@ -39,10 +40,11 @@ import com.jinatra.hiberna.ui.theme.Signal
  * the column. That keeps the search box and any error always on screen while
  * a long app list scrolls independently under them.
  *
- * [state.showSystem] has no toggle here: the "Produces" interface for this
- * task exposes `onQueryChange`, `onActivityChange` and `onRowClick` only, so
- * showing/hiding system apps is plumbed through [AppListViewModel] but has no
- * affordance on this screen yet.
+ * [state.showSystem] has no toggle here: Task 11's "Produces" interface for
+ * this screen exposed `onQueryChange`, `onActivityChange` and `onRowClick`
+ * only, so showing/hiding system apps is plumbed through [AppListViewModel]
+ * but has no affordance on this screen yet. (Task 12 adds the selection and
+ * bulk-apply parameters below; see that note for their shape.)
  *
  * The search field is a [BasicTextField] wrapped in [brutalSurface], not a
  * bare Material3 `TextField`: this is the most prominent element on the
@@ -53,6 +55,18 @@ import com.jinatra.hiberna.ui.theme.Signal
  * semantics node as the field itself, matching `onNodeWithText("Search
  * apps").performTextInput(...)`'s expectation of one node that is both
  * labelled and editable.
+ *
+ * Multi-select and bulk apply (Task 12) live here too, tuned to not collide
+ * with Task 13's detail sheet: [selected] being non-empty *is* "selection
+ * mode" - there is no separate boolean to fall out of sync with it. A
+ * long-press on [AppRow] always calls [onToggleSelection] (which both enters
+ * selection mode and selects that row, since it starts from an empty set);
+ * a normal tap calls [onToggleSelection] too, but only while [selected] is
+ * already non-empty - otherwise it calls [onRowClick], which Task 13 wires to
+ * the detail sheet. [BulkBar] itself only renders while [selected] is
+ * non-empty, and its own cancel action is [onCancelSelection], which clears
+ * the selection and - since that emptiness is what defines selection mode -
+ * exits it in the same step.
  */
 @Composable
 fun AppListScreen(
@@ -60,6 +74,12 @@ fun AppListScreen(
     onQueryChange: (String) -> Unit,
     onActivityChange: (String, BackgroundActivity) -> Unit,
     onRowClick: (String) -> Unit,
+    selected: Set<String> = emptySet(),
+    presets: List<Preset> = emptyList(),
+    skippedCount: Int = 0,
+    onToggleSelection: (String) -> Unit = {},
+    onApplyPreset: (Preset) -> Unit = {},
+    onCancelSelection: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
@@ -115,12 +135,29 @@ fun AppListScreen(
             }
 
             items(state.rows, key = { it.app.packageName }) { row ->
+                val pkg = row.app.packageName
+                val selectionMode = selected.isNotEmpty()
                 AppRow(
                     row = row,
-                    onClick = { onRowClick(row.app.packageName) },
-                    onActivityChange = { activity -> onActivityChange(row.app.packageName, activity) },
+                    onClick = {
+                        if (selectionMode) onToggleSelection(pkg) else onRowClick(pkg)
+                    },
+                    onActivityChange = { activity -> onActivityChange(pkg, activity) },
+                    selected = pkg in selected,
+                    onLongClick = { onToggleSelection(pkg) },
                 )
             }
+        }
+
+        if (selected.isNotEmpty()) {
+            BulkBar(
+                selectedCount = selected.size,
+                skippedCount = skippedCount,
+                presets = presets,
+                onApply = onApplyPreset,
+                onClear = onCancelSelection,
+                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+            )
         }
     }
 }

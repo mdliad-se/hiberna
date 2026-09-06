@@ -323,13 +323,20 @@ class AppListViewModelTest {
 
     @Test
     fun `applyPreset clears the selection once it has run`() = runTest {
-        val model = vm()
+        val shell = shell()
+        val model = vm(shell)
         model.load()
         model.toggleSelection("com.example.game")
 
         model.applyPreset(frugal)
 
         assertTrue(model.selected.value.isEmpty())
+        // A stub that only clears the selection (and does nothing else)
+        // would also pass the assertion above; these two guard against that
+        // degenerate implementation by requiring the preset to have actually
+        // reached BulkApplier/PolicyApplier and produced a real outcome.
+        assertTrue(shell.executed.any { it.joinToString(" ").contains("appops set") })
+        assertEquals("Changed 1 app.", model.state.value.bulkSummary)
     }
 
     @Test
@@ -347,6 +354,29 @@ class AppListViewModelTest {
         assertNotNull(summary)
         assertTrue(summary!!.contains("1"))
         assertTrue(summary.contains("notifications") || summary.contains("alarms"))
+    }
+
+    @Test
+    fun `skippedCount previews exactly what applyPreset's own outcome later reports as skipped`() = runTest {
+        // F2: this is what stands guard against the preview and BulkApplier
+        // drifting apart - both share BulkTarget.isSkippedByGuardrail, but a
+        // future edit to either call site could still reintroduce two
+        // separate copies of "is this app sensitive and not overridden"; this
+        // test would then start failing the moment the numbers disagreed.
+        val model = vm()
+        model.load()
+        model.toggleSelection("com.example.game")
+        model.toggleSelection("com.example.sms")
+
+        val overridden = emptySet<String>()
+        val previewed = model.skippedCount(frugal, overridden)
+        assertEquals(1, previewed)
+
+        model.applyPreset(frugal)
+
+        // The actual BulkOutcome the apply produced (surfaced only through
+        // the summary here) skipped exactly as many as the preview promised.
+        assertTrue(model.state.value.bulkSummary!!.contains("Left $previewed alone"))
     }
 
     @Test
@@ -369,19 +399,36 @@ class AppListViewModelTest {
 
     @Test
     fun `a bulk apply re-reads real state for touched packages only, via PolicyReader not a full rescan`() = runTest {
+        // F4: the pre-apply and post-apply appops reads must genuinely
+        // differ, or this test cannot tell "reflectBulk re-read real state"
+        // apart from "the row was just never touched after load()". The
+        // fixture used to report com.example.game as restricted both at
+        // load() time and again in the (identical, static) read reflectBulk
+        // would perform - so deleting reflectBulk entirely left this test
+        // green, since a stale cached value and a fresh re-read were
+        // indistinguishable. Here the appops script is mutated between
+        // load() and applyPreset() to model the on-device state genuinely
+        // moving - com.example.game is no longer appops-restricted - so a
+        // stale cache (RESTRICTED, left over from load()) and a fresh
+        // re-read (OPTIMIZED, since the battery whitelist still does not
+        // list it either) disagree, and only reflectBulk can produce the
+        // latter.
         val counting = CountingAppRepository(FakeAppRepository(listOf(userApp, systemApp, smsApp)))
-        val model = vm(apps = counting)
+        val shell = shell()
+        val model = vm(shell = shell, apps = counting)
         model.load()
         assertEquals(1, counting.loadCalls)
+
+        val before = model.state.value.rows.first { it.app.packageName == "com.example.game" }
+        assertEquals(BackgroundActivity.RESTRICTED, before.activity)
+
+        shell.script("appops query-op", ShellResult(0, "", ""))
 
         model.toggleSelection("com.example.game")
         model.applyPreset(frugal)
 
-        // The fake shell's scripted reads never change: re-reading via
-        // PolicyReader after the bulk apply must still report the same real
-        // (unchanged) activity, exactly like the single-row honesty check.
         val row = model.state.value.rows.first { it.app.packageName == "com.example.game" }
-        assertEquals(BackgroundActivity.RESTRICTED, row.activity)
+        assertEquals(BackgroundActivity.OPTIMIZED, row.activity)
         assertEquals(1, counting.loadCalls)
     }
 

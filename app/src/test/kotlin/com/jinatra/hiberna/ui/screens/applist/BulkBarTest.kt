@@ -58,8 +58,12 @@ class BulkBarTest {
         }
 
         // No guardrail copy at all when nothing was left out - a "0 will be
-        // left alone" message would just be noise.
+        // left alone" message would just be noise. Also assert something IS
+        // rendered (the selected count), so an empty/no-op composable - which
+        // would trivially pass the assertDoesNotExist above too - cannot pass
+        // this test.
         compose.onNodeWithText("alone", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("5 selected").assertIsDisplayed()
     }
 
     @Test
@@ -120,5 +124,10 @@ class BulkBarTest {
         }
 
         compose.onNodeWithText("Hibernate", substring = true).assertDoesNotExist()
+        // Also assert real content is displayed, so an empty/no-op
+        // composable - which would trivially pass the assertDoesNotExist
+        // above too - cannot pass this test.
+        compose.onNodeWithText("40 selected").assertIsDisplayed()
+        compose.onNodeWithText("Offline").assertIsDisplayed()
     }
 }
