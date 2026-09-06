@@ -1,0 +1,206 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+package com.jinatra.hiberna.ui.screens.applist
+
+import com.jinatra.hiberna.apps.FakeAppRepository
+import com.jinatra.hiberna.apps.InstalledApp
+import com.jinatra.hiberna.apps.InstalledAppRepository
+import com.jinatra.hiberna.guardrail.FakeSensitivityDetector
+import com.jinatra.hiberna.guardrail.Sensitivity
+import com.jinatra.hiberna.policy.BackgroundActivity
+import com.jinatra.hiberna.policy.PolicyApplier
+import com.jinatra.hiberna.policy.PolicyReader
+import com.jinatra.hiberna.shell.FakeShellBackend
+import com.jinatra.hiberna.shell.ShellResult
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class AppListViewModelTest {
+
+    private val userApp = InstalledApp("com.example.game", "Game", 10456, isSystem = false, isEnabled = true)
+    private val systemApp = InstalledApp("com.android.systemui", "System UI", 10023, isSystem = true, isEnabled = true)
+    private val smsApp = InstalledApp("com.example.sms", "Messages", 10500, isSystem = false, isEnabled = true)
+
+    /**
+     * Counts calls to [InstalledAppRepository.load] so a test can assert that
+     * a single-row toggle does not re-trigger a full `PackageManager`
+     * enumeration - see judgment call (a) in the task report.
+     */
+    private class CountingAppRepository(private val delegate: InstalledAppRepository) : InstalledAppRepository {
+        var loadCalls = 0
+            private set
+
+        override suspend fun load(): List<InstalledApp> {
+            loadCalls++
+            return delegate.load()
+        }
+
+        override suspend fun uidOf(packageName: String): Int? = delegate.uidOf(packageName)
+    }
+
+    private fun shell() = FakeShellBackend().apply {
+        script("appops query-op", ShellResult(0, "com.example.game", ""))
+        script("deviceidle whitelist", ShellResult(0, "user,com.example.sms,10500", ""))
+        script("netpolicy list", ShellResult(0, "10456", ""))
+        script("appops set", ShellResult(0, "", ""))
+        script("deviceidle whitelist -", ShellResult(0, "", ""))
+        script("netpolicy", ShellResult(0, "", ""))
+    }
+
+    private fun vm(
+        shell: FakeShellBackend = shell(),
+        apps: InstalledAppRepository = FakeAppRepository(listOf(userApp, systemApp, smsApp)),
+    ): AppListViewModel {
+        return AppListViewModel(
+            apps = apps,
+            reader = PolicyReader(shell),
+            applier = PolicyApplier(shell, apps),
+            sensitivity = FakeSensitivityDetector(setOf("com.example.sms")),
+        )
+    }
+
+    @Test
+    fun `maps system state onto each row`() = runTest {
+        val model = vm()
+        model.load()
+        // System apps are hidden by default (see "hides system apps until
+        // asked" below); this test is about the mapping, not the filter, and
+        // needs the system row visible to assert on it.
+        model.onShowSystemChange(true)
+
+        val rows = model.state.value.rows.associateBy { it.app.packageName }
+        assertEquals(BackgroundActivity.RESTRICTED, rows.getValue("com.example.game").activity)
+        assertEquals(BackgroundActivity.UNRESTRICTED, rows.getValue("com.example.sms").activity)
+        assertEquals(BackgroundActivity.OPTIMIZED, rows.getValue("com.android.systemui").activity)
+        assertTrue(rows.getValue("com.example.game").dataBlocked)
+    }
+
+    @Test
+    fun `hides system apps until asked`() = runTest {
+        val model = vm()
+        model.load()
+
+        assertTrue(model.state.value.rows.none { it.app.isSystem })
+
+        model.onShowSystemChange(true)
+        assertTrue(model.state.value.rows.any { it.app.isSystem })
+    }
+
+    @Test
+    fun `search matches label case-insensitively`() = runTest {
+        val model = vm()
+        model.load()
+
+        model.onQueryChange("gAmE")
+
+        assertEquals(listOf("com.example.game"), model.state.value.rows.map { it.app.packageName })
+    }
+
+    @Test
+    fun `flags sensitive apps`() = runTest {
+        val model = vm()
+        model.load()
+        model.onShowSystemChange(true)
+
+        val sms = model.state.value.rows.first { it.app.packageName == "com.example.sms" }
+        assertEquals(Sensitivity.LIKELY_BREAKS, sms.sensitivity)
+    }
+
+    @Test
+    fun `a failed read surfaces an error instead of an empty list`() = runTest {
+        val broken = FakeShellBackend().apply {
+            script("appops query-op", ShellResult(1, "", "denied"))
+        }
+        val model = vm(broken)
+
+        model.load()
+
+        assertNotNull(model.state.value.error)
+        assertTrue(model.state.value.rows.isEmpty())
+    }
+
+    @Test
+    fun `a failed read preserves the user's search and filter instead of resetting them`() = runTest {
+        val model = vm()
+        model.load()
+        model.onQueryChange("game")
+        model.onShowSystemChange(true)
+
+        val broken = FakeShellBackend().apply {
+            script("appops query-op", ShellResult(1, "", "denied"))
+        }
+        val model2 = vm(broken)
+        model2.onQueryChange("game")
+        model2.onShowSystemChange(true)
+
+        model2.load()
+
+        assertNotNull(model2.state.value.error)
+        assertEquals("game", model2.state.value.query)
+        assertTrue(model2.state.value.showSystem)
+    }
+
+    @Test
+    fun `a successful apply re-confirms via the system rather than trusting the applied values`() = runTest {
+        // The fake shell's scripted responses never actually mutate when a
+        // write runs, so a design that trusted the write outright would show
+        // UNRESTRICTED here. Re-reading instead surfaces the real (unchanged)
+        // state - exactly like a device where the writes landed but the
+        // system did not end up matching what was asked for.
+        val shell = shell()
+        val model = vm(shell)
+        model.load()
+
+        model.setActivity("com.example.game", BackgroundActivity.UNRESTRICTED)
+
+        val row = model.state.value.rows.first { it.app.packageName == "com.example.game" }
+        assertEquals(BackgroundActivity.RESTRICTED, row.activity)
+        assertNull(model.state.value.error)
+
+        val appOpsReads = shell.executed.count { it.joinToString(" ").contains("appops query-op") }
+        assertEquals(2, appOpsReads)
+    }
+
+    @Test
+    fun `a successful apply does not re-scan every installed app`() = runTest {
+        val counting = CountingAppRepository(FakeAppRepository(listOf(userApp, systemApp, smsApp)))
+        val model = vm(apps = counting)
+        model.load()
+        assertEquals(1, counting.loadCalls)
+
+        model.setActivity("com.example.game", BackgroundActivity.UNRESTRICTED)
+
+        assertEquals(1, counting.loadCalls)
+    }
+
+    @Test
+    fun `a failed apply leaves the row showing real state and names the levers already applied`() = runTest {
+        val shell = FakeShellBackend().apply {
+            // Ordered before the generic "deviceidle whitelist" read entry so
+            // this more specific write match wins for the write command,
+            // which also contains that shorter substring.
+            script("-com.example.game", ShellResult(1, "", "permission denied"))
+            script("appops query-op", ShellResult(0, "com.example.game", ""))
+            script("deviceidle whitelist", ShellResult(0, "user,com.example.sms,10500", ""))
+            script("netpolicy list", ShellResult(0, "10456", ""))
+            script("appops set", ShellResult(0, "", ""))
+            script("netpolicy", ShellResult(0, "", ""))
+        }
+        val model = vm(shell)
+        model.load()
+
+        // OPTIMIZED signs the battery-whitelist write with "-", matching the
+        // scripted failure above; appops set (allow) still succeeds first.
+        model.setActivity("com.example.game", BackgroundActivity.OPTIMIZED)
+
+        val row = model.state.value.rows.first { it.app.packageName == "com.example.game" }
+        assertEquals(BackgroundActivity.RESTRICTED, row.activity)
+        assertNotNull(model.state.value.error)
+        val error = model.state.value.error!!
+        assertTrue(error.contains("battery"))
+        assertTrue(error.contains("appops"))
+    }
+}
