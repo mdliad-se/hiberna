@@ -55,6 +55,10 @@ class PresetRepositoryTest {
         val repo = DataStorePresetRepository(store())
         repo.save(Preset("a", "First", BackgroundActivity.RESTRICTED, true))
 
+        // Load-bearing: without this, a no-op `save` or a `presets` flow that
+        // always emits empty would still pass the assertion below.
+        assertEquals(1, repo.presets.first().size)
+
         repo.delete("a")
 
         assertTrue(repo.presets.first().isEmpty())
@@ -112,6 +116,33 @@ class PresetRepositoryTest {
 
         assertEquals(listOf("A"), repo.presets.first().map { it.name })
         assertEquals("{ this is not valid json", dataStore.data.first()[backupKey])
+    }
+
+    @Test
+    fun `corruptionDetected is false for a healthy store`() = runTest {
+        val repo = DataStorePresetRepository(store())
+
+        assertTrue(repo.corruptionDetected.first().not())
+
+        repo.save(Preset("a", "First", BackgroundActivity.RESTRICTED, true))
+
+        assertTrue(repo.corruptionDetected.first().not())
+    }
+
+    @Test
+    fun `corruptionDetected returns to false after a successful save following corruption`() = runTest {
+        val dataStore = store()
+        val presetsKey = stringPreferencesKey("presets_json")
+        dataStore.edit { it[presetsKey] = "{ this is not valid json" }
+
+        val repo = DataStorePresetRepository(dataStore)
+        assertTrue(repo.corruptionDetected.first())
+
+        // The user has successfully saved valid presets again - the flag must
+        // not latch permanently true from the earlier corruption.
+        repo.save(Preset("a", "A", BackgroundActivity.RESTRICTED, true))
+
+        assertTrue(repo.corruptionDetected.first().not())
     }
 
     // --- judgement call (b): concurrent read-modify-write must not lose a write. ---

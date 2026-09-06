@@ -19,6 +19,17 @@ interface OverrideRepository {
 
 private val OVERRIDES_KEY = stringSetPreferencesKey("sensitivity_overrides")
 
+/**
+ * `setOverridden` is a read-modify-write over [OVERRIDES_KEY]. `DataStore.edit`
+ * serialises every call *made against this one [dataStore] instance* through a
+ * single writer, so concurrent calls through the same instance apply in some
+ * order rather than losing one another's write. That guarantee does **not**
+ * extend across two separate `DataStore<Preferences>` objects opened over the
+ * same file - those have no mutual exclusion between them. Callers must
+ * construct this with the shared `Context.hibernaDataStore` delegate (see
+ * `HibernaDataStore.kt`) rather than a second `PreferenceDataStoreFactory.create(...)`
+ * over the same file.
+ */
 class DataStoreOverrideRepository(
     private val dataStore: DataStore<Preferences>,
 ) : OverrideRepository {
