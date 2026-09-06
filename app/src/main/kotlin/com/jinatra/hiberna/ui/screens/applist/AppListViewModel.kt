@@ -126,8 +126,7 @@ class AppListViewModel(
             is ApplyResult.Success -> {
                 val policy = reader.read().getOrElse { t ->
                     _state.value = _state.value.copy(
-                        error = "changed ${desired.app.packageName} but could not confirm the new state: " +
-                            message(t),
+                        error = reVerifyFailureMessage(desired.app.label, message(t)),
                     )
                     return
                 }
@@ -141,25 +140,57 @@ class AppListViewModel(
                     dataBlocked = freshUid?.let(policy::isDataBlocked) ?: previous.dataBlocked,
                 )
                 all = all.map { if (it.app.packageName == confirmed.app.packageName) confirmed else it }
-                _state.value = _state.value.copy(error = null)
+                _state.value = _state.value.copy(
+                    // ApplyResult.Success only proves the netpolicy write may
+                    // have landed - it is not proof this row's dataBlocked
+                    // value above was actually re-confirmed. A null uid here
+                    // means exactly one part of the result (the data lever)
+                    // could not be checked; that must surface as an error of
+                    // its own; falling back to `previous.dataBlocked` while
+                    // reporting no error would let a stale value ride under
+                    // a false "everything is fine", which is the exact drift
+                    // the honesty rule exists to prevent.
+                    error = if (freshUid == null) {
+                        partialReVerifyFailureMessage(desired.app.label)
+                    } else {
+                        null
+                    },
+                )
                 reproject()
             }
 
             is ApplyResult.Failed -> {
-                val partial = if (result.applied.isNotEmpty()) {
-                    " (already changed: ${result.applied.joinToString()})"
-                } else {
-                    ""
-                }
-                _state.value = _state.value.copy(
-                    error = "could not change ${result.lever} for ${desired.app.packageName}: " +
-                        "${result.reason}$partial",
-                )
+                _state.value = _state.value.copy(error = applyFailureMessage(desired.app.label, result))
             }
         }
     }
 
     private fun message(t: Throwable): String = t.message ?: "could not read system state"
+
+    /**
+     * Brand voice leads with the fix, not the failure - see [GateScreen][com.jinatra.hiberna.ui.screens.gate.GateScreen]'s
+     * "Install Shizuku from F-Droid... then come back here" for the pattern
+     * this follows. The app label is used in place of the raw package name
+     * for the user-facing part; raw shell/lever detail stays available, just
+     * secondary, in parentheses at the end.
+     */
+    private fun applyFailureMessage(label: String, result: ApplyResult.Failed): String {
+        val partial = if (result.applied.isNotEmpty()) {
+            " hiberna already changed: ${result.applied.joinToString()}."
+        } else {
+            ""
+        }
+        return "hiberna could not change $label. Shizuku may have stopped - check it is " +
+            "running, then try again.$partial (${result.lever}: ${result.reason})"
+    }
+
+    private fun reVerifyFailureMessage(label: String, reason: String): String =
+        "hiberna changed $label but could not confirm the new state. Shizuku may have " +
+            "stopped - check it is running, then try again. ($reason)"
+
+    private fun partialReVerifyFailureMessage(label: String): String =
+        "hiberna changed $label but could not confirm its data-blocking state. Shizuku may " +
+            "have stopped - check it is running, then try again."
 
     private fun reproject() {
         val current = _state.value

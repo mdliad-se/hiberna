@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.jinatra.hiberna.ui.theme.Paper
@@ -28,6 +29,13 @@ import com.jinatra.hiberna.ui.theme.Teal
  * The label must never say "Hibernate": Android ships its own App
  * Hibernation feature that does something different, and reusing the word
  * would misinform users about what this app does. Use "Restrict" instead.
+ *
+ * [isSelected] and [enabled] are deliberately independent: a control that is
+ * the current choice in a group (e.g. the active option in a tri-state
+ * picker) is still live and tappable, just currently the selection - a
+ * screen reader must announce it as "selected", not "unavailable". Use
+ * [isSelected] for that case and reserve [enabled] for controls that are
+ * genuinely not actionable right now.
  */
 @Composable
 fun BrutalButton(
@@ -37,13 +45,17 @@ fun BrutalButton(
     fill: Color = Teal,
     contentColor: Color = Paper,
     enabled: Boolean = true,
+    isSelected: Boolean = false,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
 
     Box(
         modifier = modifier
-            .semantics { if (!enabled) disabled() }
+            .semantics {
+                if (!enabled) disabled()
+                if (isSelected) selected = true
+            }
             .brutalSurface(
                 fill = fill,
                 // A disabled control loses its shadow entirely: it cannot be

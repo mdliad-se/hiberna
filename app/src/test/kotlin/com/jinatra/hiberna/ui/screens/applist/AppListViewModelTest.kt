@@ -41,6 +41,29 @@ class AppListViewModelTest {
         override suspend fun uidOf(packageName: String): Int? = delegate.uidOf(packageName)
     }
 
+    /**
+     * Simulates a uid lookup that succeeds the first time (the write inside
+     * [PolicyApplier.apply]) but fails the second time (the re-verification
+     * inside `applyAndReflect`) for one specific package - the scenario F2
+     * covers: the apply itself lands, but re-confirming the data lever
+     * afterward cannot resolve a uid.
+     */
+    private class FlakyUidRepository(
+        private val delegate: InstalledAppRepository,
+        private val failOnCallNumber: Int,
+        private val targetPackage: String,
+    ) : InstalledAppRepository {
+        private var calls = 0
+
+        override suspend fun load(): List<InstalledApp> = delegate.load()
+
+        override suspend fun uidOf(packageName: String): Int? {
+            if (packageName != targetPackage) return delegate.uidOf(packageName)
+            calls++
+            return if (calls == failOnCallNumber) null else delegate.uidOf(packageName)
+        }
+    }
+
     private fun shell() = FakeShellBackend().apply {
         script("appops query-op", ShellResult(0, "com.example.game", ""))
         script("deviceidle whitelist", ShellResult(0, "user,com.example.sms,10500", ""))
@@ -202,5 +225,48 @@ class AppListViewModelTest {
         val error = model.state.value.error!!
         assertTrue(error.contains("battery"))
         assertTrue(error.contains("appops"))
+    }
+
+    @Test
+    fun `a partial re-verification failure surfaces an error instead of a silently stale value`() = runTest {
+        // The apply itself succeeds (ApplyResult.Success), but the uid
+        // lookup used afterward to re-confirm dataBlocked fails - a
+        // narrower, distinguishable failure than the whole apply failing.
+        val shell = shell()
+        val flaky = FlakyUidRepository(
+            delegate = FakeAppRepository(listOf(userApp, systemApp, smsApp)),
+            failOnCallNumber = 2,
+            targetPackage = "com.example.game",
+        )
+        val model = vm(shell = shell, apps = flaky)
+        model.load()
+
+        model.setActivity("com.example.game", BackgroundActivity.UNRESTRICTED)
+
+        // Success is not silently reported: the row is left showing real
+        // system state (activity, confirmed via the read that did succeed)
+        // but the error is non-null because the data lever's re-verification
+        // could not run - never both "row updated" and "error null" at once
+        // for a part of the result that was never actually confirmed.
+        assertNotNull(model.state.value.error)
+        val row = model.state.value.rows.first { it.app.packageName == "com.example.game" }
+        assertEquals(BackgroundActivity.RESTRICTED, row.activity)
+    }
+
+    @Test
+    fun `setDataBlocked applies and reflects the real data-blocking state`() = runTest {
+        // The fake shell's scripted "netpolicy list" response reports uid
+        // 10456 (com.example.game) as blocked and never mutates on write, so
+        // requesting `false` here while the row still confirms `true`
+        // proves the value comes from the real re-read - not from
+        // optimistically trusting the `false` that was just requested.
+        val model = vm()
+        model.load()
+
+        model.setDataBlocked("com.example.game", false)
+
+        val row = model.state.value.rows.first { it.app.packageName == "com.example.game" }
+        assertTrue(row.dataBlocked)
+        assertNull(model.state.value.error)
     }
 }
