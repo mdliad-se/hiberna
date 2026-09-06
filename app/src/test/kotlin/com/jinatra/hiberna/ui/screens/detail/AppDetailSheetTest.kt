@@ -1,9 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package com.jinatra.hiberna.ui.screens.detail
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.jinatra.hiberna.apps.InstalledApp
@@ -16,6 +22,8 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 /**
  * Runs under Robolectric so it stays part of `:app:testDebugUnitTest` with no
@@ -174,6 +182,54 @@ class AppDetailSheetTest {
         compose.onNodeWithText("Open in Settings").performClick()
 
         assertEquals(1, opened)
+    }
+
+    @Test
+    @Config(qualifiers = "w360dp-h640dp")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun `the widest activity label lays out on a single line inside the sheet at 360dp`() {
+        // Mirrors AppListScreenTest's own measurement of this exact picker
+        // inside AppRow (see that test's doc for the full NATIVE-mode
+        // rationale: Robolectric's default legacy graphics mode does not
+        // measure real font metrics, so a wrap this test exists to catch
+        // would not reproduce under it). This is the sheet's copy of the
+        // same picker, which ActivityPicker's own kdoc notes is *less*
+        // horizontally squeezed than AppRow's (roughly 48dp of combined
+        // padding here versus roughly 64dp there) - a real measurement
+        // rather than trusting that arithmetic.
+        compose.setContent {
+            JinatraTheme {
+                Column {
+                    Text(
+                        text = "Reference",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.testTag("single-line-reference"),
+                    )
+                    AppDetailSheet(
+                        row = sensitiveRow, overridden = false,
+                        onActivityChange = {}, onDataChange = {},
+                        onOverrideChange = {}, onOpenSettings = {},
+                    )
+                }
+            }
+        }
+
+        val singleLineHeight =
+            compose.onNodeWithTag("single-line-reference").fetchSemanticsNode().size.height
+        // useUnmergedTree = true: the button is itself a clickable (a
+        // semantics merging boundary), so the merged node for its text would
+        // report the whole button's bounds (text plus contentPadding), not
+        // the Text's own tight bounds - same reason AppListScreenTest needs
+        // it for the identical assertion on AppRow's copy of this picker.
+        val constrainedHeight = compose.onNodeWithText("Unrestricted", useUnmergedTree = true)
+            .fetchSemanticsNode().size.height
+
+        assertEquals(
+            "expected the widest activity-picker label (\"Unrestricted\") to lay out at its " +
+                "unconstrained single-line height at 360dp inside AppDetailSheet, not wrapped",
+            singleLineHeight,
+            constrainedHeight,
+        )
     }
 
     @Test

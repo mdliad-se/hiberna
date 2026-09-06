@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.jinatra.hiberna.policy.BackgroundActivity
+import com.jinatra.hiberna.preset.DEFAULT_PRESETS
 import com.jinatra.hiberna.preset.Preset
 import com.jinatra.hiberna.ui.theme.JinatraTheme
 import org.junit.Assert.assertEquals
@@ -106,6 +107,44 @@ class PresetScreenTest {
 
         assertEquals(1, compose.onAllNodesWithText("Tap again to delete").fetchSemanticsNodes().size)
         assertEquals(1, compose.onAllNodesWithText("Delete").fetchSemanticsNodes().size)
+    }
+
+    // --- F1: an empty list must not be a dead end - it offers a way back. ---
+
+    @Test
+    fun `offers no restore action while any preset still exists`() {
+        compose.setContent {
+            JinatraTheme {
+                PresetScreen(presets = listOf(balanced), onSave = {}, onDelete = {})
+            }
+        }
+
+        compose.onNodeWithText("Restore default presets").assertDoesNotExist()
+    }
+
+    @Test
+    fun `an empty preset list offers to restore the defaults`() {
+        compose.setContent {
+            JinatraTheme {
+                PresetScreen(presets = emptyList(), onSave = {}, onDelete = {})
+            }
+        }
+
+        compose.onNodeWithText("Restore default presets").assertIsDisplayed()
+    }
+
+    @Test
+    fun `tapping restore reports every default preset to onSave`() {
+        val saved = mutableListOf<Preset>()
+        compose.setContent {
+            JinatraTheme {
+                PresetScreen(presets = emptyList(), onSave = { saved += it }, onDelete = {})
+            }
+        }
+
+        compose.onNodeWithText("Restore default presets").performClick()
+
+        assertEquals(DEFAULT_PRESETS, saved)
     }
 
     @Test

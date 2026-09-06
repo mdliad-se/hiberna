@@ -29,9 +29,23 @@ class PresetRepositoryTest {
             produceFile = { File(tmp.root, "test-${counter++}.preferences_pb") },
         )
 
+    // F1's seeding means a never-touched store's *logical* empty state is
+    // `DEFAULT_PRESETS`, not literally nothing - see `PresetRepository.kt`'s
+    // `mutate` doc. These generic save/delete-mechanics tests are not about
+    // that seeding at all, so they start from a store that has already been
+    // materialized to a concrete, persisted empty list (every default
+    // explicitly deleted) rather than relying on "never touched" - the same
+    // way a real user who deleted every default would arrive at this state.
+    private suspend fun emptyStore(): DataStore<Preferences> {
+        val dataStore = store()
+        val seeded = DataStorePresetRepository(dataStore)
+        DEFAULT_PRESETS.forEach { seeded.delete(it.id) }
+        return dataStore
+    }
+
     @Test
     fun `saves and reads back a preset`() = runTest {
-        val repo = DataStorePresetRepository(store())
+        val repo = DataStorePresetRepository(emptyStore())
         val preset = Preset("aggressive", "Aggressive", BackgroundActivity.RESTRICTED, true)
 
         repo.save(preset)
@@ -41,7 +55,7 @@ class PresetRepositoryTest {
 
     @Test
     fun `saving the same id replaces rather than duplicates`() = runTest {
-        val repo = DataStorePresetRepository(store())
+        val repo = DataStorePresetRepository(emptyStore())
         repo.save(Preset("a", "First", BackgroundActivity.RESTRICTED, true))
         repo.save(Preset("a", "Renamed", BackgroundActivity.OPTIMIZED, false))
 
@@ -52,7 +66,7 @@ class PresetRepositoryTest {
 
     @Test
     fun `deletes by id`() = runTest {
-        val repo = DataStorePresetRepository(store())
+        val repo = DataStorePresetRepository(emptyStore())
         repo.save(Preset("a", "First", BackgroundActivity.RESTRICTED, true))
 
         // Load-bearing: without this, a no-op `save` or a `presets` flow that
@@ -145,11 +159,59 @@ class PresetRepositoryTest {
         assertTrue(repo.corruptionDetected.first().not())
     }
 
+    // --- F1: a fresh install must not offer an empty preset list, but a ---
+    // --- deliberate delete-to-empty must not silently resurrect. ---
+
+    @Test
+    fun `a fresh store yields the default presets rather than an empty list`() = runTest {
+        val repo = DataStorePresetRepository(store())
+
+        assertEquals(DEFAULT_PRESETS, repo.presets.first())
+    }
+
+    @Test
+    fun `deleting one default leaves the other two and does not resurrect it on a later read`() = runTest {
+        val repo = DataStorePresetRepository(store())
+
+        repo.delete(DEFAULT_PRESETS[0].id)
+
+        val expected = DEFAULT_PRESETS.drop(1)
+        assertEquals(expected, repo.presets.first())
+        // Read again: the deleted default must not come back just because
+        // the store was re-read.
+        assertEquals(expected, repo.presets.first())
+    }
+
+    @Test
+    fun `deleting every default yields an empty list that stays empty across reads`() = runTest {
+        val repo = DataStorePresetRepository(store())
+
+        DEFAULT_PRESETS.forEach { repo.delete(it.id) }
+
+        assertTrue(repo.presets.first().isEmpty())
+        // Stays empty - this is what makes delete mean delete, not "reseed
+        // on the next read".
+        assertTrue(repo.presets.first().isEmpty())
+    }
+
+    @Test
+    fun `saving the defaults back after deleting them all restores them`() = runTest {
+        val repo = DataStorePresetRepository(store())
+        DEFAULT_PRESETS.forEach { repo.delete(it.id) }
+        assertTrue(repo.presets.first().isEmpty())
+
+        // The cheapest honest "undo" for delete-to-empty: re-save the same
+        // defaults, exactly what a "Restore default presets" action does.
+        DEFAULT_PRESETS.forEach { repo.save(it) }
+
+        assertEquals(DEFAULT_PRESETS.toSet(), repo.presets.first().toSet())
+    }
+
     // --- judgement call (b): concurrent read-modify-write must not lose a write. ---
 
     @Test
     fun `concurrent saves do not lose a write`() = runTest {
-        val repo = DataStorePresetRepository(store())
+        val repo = DataStorePresetRepository(emptyStore())
         val toSave = (1..20).map { Preset(it.toString(), "P$it", BackgroundActivity.OPTIMIZED, false) }
 
         coroutineScope {

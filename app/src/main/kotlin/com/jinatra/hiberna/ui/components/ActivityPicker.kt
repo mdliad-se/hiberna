@@ -31,9 +31,16 @@ import com.jinatra.hiberna.ui.theme.Teal
  * than [BrutalButton]'s default so "Unrestricted" still lays out on one line
  * at 360dp inside a three-way `Row` split - see `AppListScreenTest`'s
  * `w360dp-h640dp` layout-measurement test, which asserts the actual laid out
- * text height rather than trusting arithmetic. Both call sites (`AppRow`,
- * `AppDetailSheet`) render at this same minimum width, so both get this
- * fit for free rather than needing their own tuning.
+ * text height rather than trusting arithmetic. The two call sites do *not*
+ * squeeze this picker to the same effective width, despite both starting
+ * from the same 360dp device: `AppRow` nets roughly 64dp of combined
+ * horizontal padding (`AppListScreen`'s own 16.dp screen padding plus
+ * `AppRow`'s own 16.dp row padding, each doubled), while `AppDetailSheet`'s
+ * `Column` padding alone nets roughly 48dp - the sheet is the *less*
+ * constrained of the two, not equally constrained. That is exactly why its
+ * copy of this picker also fits on one line, not because the two match -
+ * see `AppDetailSheetTest`'s own `w360dp-h640dp`/`NATIVE`-mode measurement,
+ * which confirms it directly rather than reasoning about padding numbers.
  *
  * Always rendered with `shadow = 0.dp`: both call sites place this inside
  * their own slab (`AppRow`'s row surface, `AppDetailSheet`'s card), and brand

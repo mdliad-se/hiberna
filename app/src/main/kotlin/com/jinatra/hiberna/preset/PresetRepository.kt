@@ -41,14 +41,29 @@ private val PRESETS_CORRUPT_BACKUP_KEY = stringPreferencesKey("presets_json_corr
  * construct this with the shared `Context.hibernaDataStore` delegate (see
  * `HibernaDataStore.kt`) rather than a second `PreferenceDataStoreFactory.create(...)`
  * over the same file.
+ *
+ * A store that has never been written to reads as [DEFAULT_PRESETS], not an
+ * empty list - see [presets]' and [mutate]'s own docs for exactly how that is
+ * told apart from a deliberate delete-to-empty, which stays empty.
  */
 class DataStorePresetRepository(
     private val dataStore: DataStore<Preferences>,
     private val json: Json = Json { ignoreUnknownKeys = true },
 ) : PresetRepository {
 
+    // `raw == null` means the key was never written - a fresh install, or
+    // one where every default was deleted and nothing has been saved since
+    // (delete always writes an empty array back, see `mutate`, so it leaves
+    // the key present). Only the former should see `DEFAULT_PRESETS`: a user
+    // who deliberately emptied their list must see it stay empty, not have
+    // it silently reseed on the next read - that would make delete look
+    // broken. A stored-but-corrupt blob is not "never stored" either, so it
+    // still falls through to `decode`'s existing empty-on-corruption path.
     override val presets: Flow<List<Preset>> =
-        dataStore.data.map { prefs -> decode(prefs[PRESETS_KEY]) }
+        dataStore.data.map { prefs ->
+            val raw = prefs[PRESETS_KEY]
+            if (raw == null) DEFAULT_PRESETS else decode(raw)
+        }
 
     /**
      * True while the *currently* stored blob is unreadable. Reflects only the
@@ -99,7 +114,16 @@ class DataStorePresetRepository(
                 // user has moved on with valid data again.
                 prefs.remove(PRESETS_CORRUPT_BACKUP_KEY)
             }
-            val current = parsed?.getOrNull() ?: emptyList()
+            // Mirrors `presets`' own seeding: a `save`/`delete` against a
+            // never-touched store (`raw == null`) must act on the same
+            // `DEFAULT_PRESETS` the flow shows, not on an empty list - one of
+            // those virtual defaults could otherwise not be deleted first,
+            // since deleting it from a never-written empty baseline would
+            // just re-write an empty array and silently drop the other two,
+            // which only ever existed virtually. A stored-but-corrupt blob is
+            // not "never written" - `parsed.isFailure` above already parks
+            // its bytes as a backup and starts this write from empty.
+            val current = if (raw == null) DEFAULT_PRESETS else (parsed?.getOrNull() ?: emptyList())
             prefs[PRESETS_KEY] = json.encodeToString(block(current))
         }
     }

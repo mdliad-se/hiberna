@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.jinatra.hiberna.policy.BackgroundActivity
+import com.jinatra.hiberna.preset.DEFAULT_PRESETS
 import com.jinatra.hiberna.preset.Preset
 import com.jinatra.hiberna.ui.components.BrutalButton
 import com.jinatra.hiberna.ui.components.brutalSurface
@@ -44,8 +45,17 @@ import com.jinatra.hiberna.ui.theme.Signal
  * shaped form on top of everything else this task already carries. `onSave`
  * is still exposed with the brief's full `(Preset) -> Unit` shape, so v2 can
  * add real authoring against this same screen without a signature change; v1
- * ships with [com.jinatra.hiberna.preset.DEFAULT_PRESETS] as the only presets
- * a user has, same as today.
+ * ships with [DEFAULT_PRESETS] as the only presets a user has, same as today.
+ *
+ * **An empty [presets] list offers "Restore default presets", never a dead
+ * end:** with no authoring UI, deleting every preset would otherwise strand a
+ * user with nothing for bulk apply - the app's headline capability - to
+ * offer, and no way back. `DataStorePresetRepository` deliberately does not
+ * resurrect a deleted default on its own (delete must mean delete, see that
+ * class's doc), so this button is the honest way back: it calls [onSave] once
+ * per [DEFAULT_PRESETS] entry, needs no new persistence, and only ever shows
+ * when [presets] is empty - it is not a competing "reset" affordance while
+ * real presets exist.
  *
  * **Delete is a two-tap arm/confirm, not a first-tap delete and not a modal
  * (judgement call, task report has the fuller reasoning):** deleting a preset
@@ -73,6 +83,29 @@ fun PresetScreen(
         modifier = modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        if (presets.isEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .brutalSurface(fill = Paper, shadow = ShadowSm)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = "No presets. Bulk apply has nothing to offer until you restore " +
+                        "or create one.",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                BrutalButton(
+                    text = "Restore default presets",
+                    onClick = { DEFAULT_PRESETS.forEach(onSave) },
+                    fill = Paper,
+                    contentColor = InkColor,
+                    shadow = 0.dp,
+                )
+            }
+        }
+
         presets.forEach { preset ->
             val armed = armedForDeleteId == preset.id
             Column(
