@@ -15,6 +15,8 @@ import android.provider.AlarmClock
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -141,6 +143,76 @@ class SensitivityDetectorTest {
         val detector = PlatformSensitivityDetector(context, staticList = emptySet())
 
         assertEquals(Sensitivity.NONE, detector.classify(pkg))
+    }
+
+    // --- the pure bitmask decision behind the check above (Task 12 ---
+    // --- precondition 2): tested directly with Int literals, so this ---
+    // --- coverage cannot silently stop testing anything the way the ---
+    // --- reflection-based tests above can if a future Robolectric/AOSP ---
+    // --- layout removes the field they poke at. ---
+
+    @Test
+    fun `qualifies a type carrying the location bit`() {
+        assertTrue(hasQualifyingForegroundServiceType(ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION))
+    }
+
+    @Test
+    fun `qualifies a type carrying the media playback bit`() {
+        assertTrue(hasQualifyingForegroundServiceType(ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK))
+    }
+
+    @Test
+    fun `does not qualify a type carrying only an unrelated bit`() {
+        assertFalse(hasQualifyingForegroundServiceType(ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA))
+    }
+
+    @Test
+    fun `does not qualify zero`() {
+        assertFalse(hasQualifyingForegroundServiceType(0))
+    }
+
+    @Test
+    fun `qualifies a combined type that also carries an unrelated bit`() {
+        // A service can declare more than one type; only one qualifying bit
+        // needs to be set for the whole package to be flagged.
+        val combined = ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+        assertTrue(hasQualifyingForegroundServiceType(combined))
+    }
+
+    // --- Task 12 precondition 1: classify() must read every installed ---
+    // --- package's services from one batched getInstalledPackages(GET_SERVICES) ---
+    // --- call rather than a per-package getPackageInfo Binder round trip - ---
+    // --- the bulk-apply path calls classify() for hundreds of packages. ---
+
+    @Test
+    fun `classifies several packages' foreground service types from one detector instance`() = runTest {
+        val navPkg = "com.example.navigation"
+        val cameraPkg = "com.example.camera"
+        val plainPkg = "com.example.plain"
+        val navInstalled = installPackageWithForegroundServiceType(
+            navPkg,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION,
+        )
+        val cameraInstalled = installPackageWithForegroundServiceType(
+            cameraPkg,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA,
+        )
+        if (!navInstalled || !cameraInstalled) return@runTest
+        shadowOf(context.packageManager).installPackage(
+            PackageInfo().apply {
+                packageName = plainPkg
+                applicationInfo = ApplicationInfo().apply { packageName = plainPkg }
+            },
+        )
+        val detector = PlatformSensitivityDetector(context, staticList = emptySet())
+
+        // All three resolved correctly from the same underlying device-wide
+        // query - a package with no services at all (plainPkg) must not
+        // crash the map lookup, just report NONE.
+        assertEquals(Sensitivity.LIKELY_BREAKS, detector.classify(navPkg))
+        assertEquals(Sensitivity.NONE, detector.classify(cameraPkg))
+        assertEquals(Sensitivity.NONE, detector.classify(plainPkg))
     }
 
     @Test

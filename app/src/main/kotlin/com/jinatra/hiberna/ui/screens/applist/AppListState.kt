@@ -19,4 +19,12 @@ data class AppListState(
     val loading: Boolean = false,
     /** Non-null means we could not read system state. Never conflate with "nothing restricted". */
     val error: String? = null,
+    /**
+     * A one-line, human-readable summary of the last bulk apply - see
+     * [AppListViewModel.applyPreset]'s doc for why a toast or a modal listing
+     * every touched package are both wrong here. Non-null until
+     * [AppListViewModel.dismissBulkSummary] is called or another bulk apply
+     * replaces it.
+     */
+    val bulkSummary: String? = null,
 )

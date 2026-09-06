@@ -8,31 +8,39 @@ import com.jinatra.hiberna.guardrail.SensitivityDetector
 import com.jinatra.hiberna.policy.AppPolicy
 import com.jinatra.hiberna.policy.ApplyResult
 import com.jinatra.hiberna.policy.BackgroundActivity
+import com.jinatra.hiberna.policy.BulkApplier
+import com.jinatra.hiberna.policy.BulkOutcome
+import com.jinatra.hiberna.policy.BulkTarget
 import com.jinatra.hiberna.policy.PolicyApplier
 import com.jinatra.hiberna.policy.PolicyReader
+import com.jinatra.hiberna.preset.OverrideRepository
+import com.jinatra.hiberna.preset.Preset
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
  * Backs the app list - the screen the app exists for. Every installed app,
  * with its real system state, and (for background activity) editable in
- * place.
- *
- * Two constructor parameters are coming in Task 12 (`bulk: BulkApplier`,
- * `overrides: OverrideRepository`) for multi-select bulk apply. Nothing here
- * should need to change shape for that - it is additive, not a rewrite.
+ * place, plus (Task 12) multi-select and a guarded bulk apply across the
+ * current selection.
  */
 class AppListViewModel(
     private val apps: InstalledAppRepository,
     private val reader: PolicyReader,
     private val applier: PolicyApplier,
     private val sensitivity: SensitivityDetector,
+    private val bulk: BulkApplier,
+    private val overrides: OverrideRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AppListState())
     val state: StateFlow<AppListState> = _state.asStateFlow()
+
+    private val _selected = MutableStateFlow<Set<String>>(emptySet())
+    val selected: StateFlow<Set<String>> = _selected.asStateFlow()
 
     /**
      * The full, unfiltered snapshot [reproject] derives `state.rows` from.
@@ -92,6 +100,121 @@ class AppListViewModel(
         val row = all.firstOrNull { it.app.packageName == packageName } ?: return
         applyAndReflect(row.copy(dataBlocked = blocked))
     }
+
+    fun toggleSelection(packageName: String) {
+        val current = _selected.value
+        _selected.value =
+            if (packageName in current) current - packageName else current + packageName
+    }
+
+    fun clearSelection() {
+        _selected.value = emptySet()
+    }
+
+    fun dismissBulkSummary() {
+        _state.value = _state.value.copy(bulkSummary = null)
+    }
+
+    /**
+     * Applies [preset] across every currently selected package, then clears
+     * the selection and reports what actually happened.
+     *
+     * The guardrail lives in [BulkApplier], not here: this only maps rows to
+     * [BulkTarget]s (never the UI's [AppRowState] itself - see [BulkTarget]'s
+     * own doc for why that boundary matters) and reads the persisted
+     * per-package overrides at the moment of apply, not from some cached
+     * snapshot that could be stale by the time the user taps a preset.
+     *
+     * After the write, only the packages [BulkOutcome] says were actually
+     * touched - [BulkOutcome.applied] and [BulkOutcome.failed], never
+     * [BulkOutcome.skipped] - are re-read via [PolicyReader.read] and folded
+     * back into [all], for the same honesty reason [applyAndReflect] re-reads
+     * a single row instead of trusting the write: three shell exit codes are
+     * not proof the system now matches what was asked for. This deliberately
+     * does *not* call [load] the way the task brief originally sketched:
+     * [load] also re-enumerates every installed package through
+     * `PackageManager`, work a policy toggle - bulk or single - can never
+     * invalidate, since toggling a lever does not install or remove apps. A
+     * bulk apply over a few hundred selected packages would otherwise cost a
+     * few-hundred-app `PackageManager` rescan on top of the one cheap
+     * [PolicyReader.read] that is actually needed. See the task report for
+     * the fuller reasoning, including why the summary text (rather than a
+     * toast or a modal) is what actually gets shown for a partial failure.
+     */
+    suspend fun applyPreset(preset: Preset) {
+        val overridden = overrides.overridden.first()
+        val targetPackages = _selected.value
+        val targets = all
+            .filter { it.app.packageName in targetPackages }
+            .map { BulkTarget(it.app.packageName, it.sensitivity) }
+
+        val outcome = bulk.apply(targets, preset, overridden)
+        clearSelection()
+        reflectBulk(outcome)
+        _state.value = _state.value.copy(bulkSummary = bulkSummaryFor(outcome).ifBlank { null })
+    }
+
+    /**
+     * Re-reads real system state for exactly the packages a bulk apply
+     * touched - [BulkOutcome.applied] landed, [BulkOutcome.failed] may have
+     * partially landed (see [ApplyResult.Failed.applied]) - and folds the
+     * confirmed values back into [all]. Skipped packages are left alone: the
+     * guardrail never attempted a write for them, so there is nothing new to
+     * confirm.
+     */
+    private suspend fun reflectBulk(outcome: BulkOutcome) {
+        val touched = (outcome.applied + outcome.failed.keys).toSet()
+        if (touched.isEmpty()) return
+
+        val policy = reader.read().getOrElse { t ->
+            _state.value = _state.value.copy(error = message(t))
+            return
+        }
+        all = all.map { row ->
+            if (row.app.packageName !in touched) return@map row
+            val freshUid = apps.uidOf(row.app.packageName)
+            row.copy(
+                activity = policy.backgroundActivityFor(row.app.packageName),
+                dataBlocked = freshUid?.let(policy::isDataBlocked) ?: row.dataBlocked,
+            )
+        }
+        reproject()
+    }
+
+    /**
+     * One line, not a toast and not a modal: a toast naming nothing is
+     * useless the moment it disappears, and a modal listing forty package
+     * names is worse - the user did not ask for a report, they asked "did
+     * this work". So this names counts for what worked and what the
+     * guardrail deliberately left alone (both harmless to summarise in bulk),
+     * and names actual apps - by label, not raw package name, capped at
+     * [MAX_NAMED_FAILURES] - only for the case that is actually unexpected:
+     * a failure. See the task report for the fuller reasoning.
+     */
+    private fun bulkSummaryFor(outcome: BulkOutcome): String {
+        val parts = mutableListOf<String>()
+        if (outcome.applied.isNotEmpty()) {
+            val n = outcome.applied.size
+            parts += "Changed $n app${if (n == 1) "" else "s"}."
+        }
+        if (outcome.skipped.isNotEmpty()) {
+            val n = outcome.skipped.size
+            parts += "Left $n alone - restricting them may stop notifications or alarms. " +
+                "Open one to override it."
+        }
+        if (outcome.failed.isNotEmpty()) {
+            val named = outcome.failed.entries.take(MAX_NAMED_FAILURES).joinToString { (pkg, reason) ->
+                "${labelFor(pkg)} ($reason)"
+            }
+            val more = outcome.failed.size - MAX_NAMED_FAILURES
+            val suffix = if (more > 0) " and $more more" else ""
+            parts += "Could not change: $named$suffix."
+        }
+        return parts.joinToString(" ")
+    }
+
+    private fun labelFor(packageName: String): String =
+        all.firstOrNull { it.app.packageName == packageName }?.app?.label ?: packageName
 
     /**
      * Applies [desired] and reflects the *real* outcome, never the requested
@@ -200,5 +323,10 @@ class AppListViewModel(
                 .filter { current.showSystem || !it.app.isSystem }
                 .filter { needle.isEmpty() || it.app.label.lowercase().contains(needle) },
         )
+    }
+
+    private companion object {
+        /** Named failures shown in [bulkSummaryFor] before collapsing to "and N more". */
+        const val MAX_NAMED_FAILURES = 3
     }
 }

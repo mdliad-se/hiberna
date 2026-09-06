@@ -70,6 +70,7 @@ class PlatformSensitivityDetector(
     private val authenticatorPackages: Set<String> by lazy { resolveAuthenticatorPackages() }
     private val homePackage: String? by lazy { resolveHomePackage() }
     private val assistantPackages: Set<String> by lazy { resolveAssistantPackages() }
+    private val foregroundServiceTypesByPackage: Map<String, Int> by lazy { resolveForegroundServiceTypes() }
 
     override suspend fun classify(packageName: String): Sensitivity = withContext(Dispatchers.IO) {
         val flagged = packageName in staticList ||
@@ -79,7 +80,7 @@ class PlatformSensitivityDetector(
             packageName in authenticatorPackages ||
             packageName == homePackage ||
             packageName in assistantPackages ||
-            hasQualifyingForegroundServiceType(packageName)
+            hasQualifyingForegroundServiceType(foregroundServiceTypesByPackage[packageName] ?: 0)
         if (flagged) Sensitivity.LIKELY_BREAKS else Sensitivity.NONE
     }
 
@@ -128,37 +129,57 @@ class PlatformSensitivityDetector(
             .toSet()
     }.getOrDefault(emptySet())
 
-    // Per-package, unlike every other source above: whether this app
-    // declares a foreground service of a type with a legitimate, ongoing
-    // background need (navigation, health/fitness tracking, music
-    // playback). Queried per-classify rather than cached in a `by lazy`
-    // field because it depends on the package being classified, not on
-    // device-wide state.
-    private fun hasQualifyingForegroundServiceType(packageName: String): Boolean = runCatching {
-        val services = context.packageManager
-            .getPackageInfo(packageName, PackageManager.GET_SERVICES)
-            .services
-            ?: return@runCatching false
-        services.any { serviceInfo -> serviceInfo.foregroundServiceType and QUALIFYING_FGS_TYPES != 0 }
-    }.getOrDefault(false)
-
-    private companion object {
-        // LOCATION and MEDIA_PLAYBACK have existed since API 29, below this
-        // app's minSdk 30, so they are always safe to reference. HEALTH was
-        // only added in API 34; the bit is still a compile-time constant
-        // (inlined by the compiler, so referencing it never throws), but a
-        // service parsed on an API < 34 device can never have that bit set
-        // in the first place, so the SDK_INT guard below documents that
-        // rather than changing behavior.
-        val QUALIFYING_FGS_TYPES: Int = ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH
-            } else {
-                0
+    // Device-wide, computed once - unlike the per-package
+    // `getPackageInfo(pkg, GET_SERVICES)` Binder call this used to make on
+    // every classify(), this is one `getInstalledPackages(GET_SERVICES)`
+    // query cached in a `by lazy` field, exactly like every other source in
+    // this class. The bulk-apply path (Task 12) calls classify() for
+    // hundreds of packages in a row; that used to mean hundreds of extra
+    // IPCs, now it means one.
+    //
+    // Maps each package to the bitwise OR of every one of its services'
+    // `foregroundServiceType`. That is equivalent to the old "any single
+    // service qualifies" check - `a and (b or c) == (a and b) or (a and c)`,
+    // so ORing every service's type together and masking once against
+    // [QUALIFYING_FGS_TYPES] is nonzero iff at least one individual service
+    // would have been - just computed from one query instead of N.
+    private fun resolveForegroundServiceTypes(): Map<String, Int> = runCatching {
+        context.packageManager
+            .getInstalledPackages(PackageManager.GET_SERVICES)
+            .associate { info ->
+                val combined = info.services.orEmpty().fold(0) { acc, service ->
+                    acc or service.foregroundServiceType
+                }
+                info.packageName to combined
             }
-    }
+    }.getOrDefault(emptyMap())
 }
+
+// LOCATION and MEDIA_PLAYBACK have existed since API 29, below this app's
+// minSdk 30, so they are always safe to reference. HEALTH was only added in
+// API 34; the bit is still a compile-time constant (inlined by the
+// compiler, so referencing it never throws), but a service parsed on an
+// API < 34 device can never have that bit set in the first place, so the
+// SDK_INT guard below documents that rather than changing behavior.
+internal val QUALIFYING_FGS_TYPES: Int = ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or
+    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH
+    } else {
+        0
+    }
+
+/**
+ * The pure decision behind the foreground-service check above, pulled out
+ * so it is unit-testable with plain `Int` literals. Its only previous
+ * coverage reflectively set a private [ServiceInfo] field and silently
+ * returned with zero assertions if that reflection ever broke - a test that
+ * can stop testing while still reporting green. This function has no such
+ * escape hatch: give it an `Int`, get a `Boolean`, no PackageManager, no
+ * reflection, nothing to silently stop working.
+ */
+internal fun hasQualifyingForegroundServiceType(foregroundServiceType: Int): Boolean =
+    foregroundServiceType and QUALIFYING_FGS_TYPES != 0
 
 class FakeSensitivityDetector(private val sensitive: Set<String>) : SensitivityDetector {
     override suspend fun classify(packageName: String): Sensitivity =

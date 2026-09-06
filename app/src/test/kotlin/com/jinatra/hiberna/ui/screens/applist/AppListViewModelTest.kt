@@ -1,24 +1,44 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package com.jinatra.hiberna.ui.screens.applist
 
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.jinatra.hiberna.apps.FakeAppRepository
 import com.jinatra.hiberna.apps.InstalledApp
 import com.jinatra.hiberna.apps.InstalledAppRepository
 import com.jinatra.hiberna.guardrail.FakeSensitivityDetector
 import com.jinatra.hiberna.guardrail.Sensitivity
 import com.jinatra.hiberna.policy.BackgroundActivity
+import com.jinatra.hiberna.policy.BulkApplier
 import com.jinatra.hiberna.policy.PolicyApplier
 import com.jinatra.hiberna.policy.PolicyReader
+import com.jinatra.hiberna.preset.DataStoreOverrideRepository
+import com.jinatra.hiberna.preset.OverrideRepository
+import com.jinatra.hiberna.preset.Preset
 import com.jinatra.hiberna.shell.FakeShellBackend
 import com.jinatra.hiberna.shell.ShellResult
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.File
 
 class AppListViewModelTest {
+
+    @get:Rule val tmp = TemporaryFolder()
+    private var storeCounter = 0
+
+    /** A fresh, isolated DataStore file per call - same pattern as PresetRepositoryTest. */
+    private fun store(): DataStore<Preferences> =
+        PreferenceDataStoreFactory.create(
+            produceFile = { File(tmp.root, "overrides-${storeCounter++}.preferences_pb") },
+        )
 
     private val userApp = InstalledApp("com.example.game", "Game", 10456, isSystem = false, isEnabled = true)
     private val systemApp = InstalledApp("com.android.systemui", "System UI", 10023, isSystem = true, isEnabled = true)
@@ -76,14 +96,19 @@ class AppListViewModelTest {
     private fun vm(
         shell: FakeShellBackend = shell(),
         apps: InstalledAppRepository = FakeAppRepository(listOf(userApp, systemApp, smsApp)),
+        overrides: OverrideRepository = DataStoreOverrideRepository(store()),
     ): AppListViewModel {
         return AppListViewModel(
             apps = apps,
             reader = PolicyReader(shell),
             applier = PolicyApplier(shell, apps),
             sensitivity = FakeSensitivityDetector(setOf("com.example.sms")),
+            bulk = BulkApplier(PolicyApplier(shell, apps)),
+            overrides = overrides,
         )
     }
+
+    private val frugal = Preset("frugal", "Frugal", BackgroundActivity.RESTRICTED, restrictBackgroundData = false)
 
     @Test
     fun `maps system state onto each row`() = runTest {
@@ -268,5 +293,120 @@ class AppListViewModelTest {
         val row = model.state.value.rows.first { it.app.packageName == "com.example.game" }
         assertTrue(row.dataBlocked)
         assertNull(model.state.value.error)
+    }
+
+    // --- Task 12: multi-select and bulk apply ---
+
+    @Test
+    fun `toggleSelection adds and removes a package`() = runTest {
+        val model = vm()
+
+        model.toggleSelection("com.example.game")
+        assertEquals(setOf("com.example.game"), model.selected.value)
+
+        model.toggleSelection("com.example.sms")
+        assertEquals(setOf("com.example.game", "com.example.sms"), model.selected.value)
+
+        model.toggleSelection("com.example.game")
+        assertEquals(setOf("com.example.sms"), model.selected.value)
+    }
+
+    @Test
+    fun `clearSelection empties the selection`() = runTest {
+        val model = vm()
+        model.toggleSelection("com.example.game")
+
+        model.clearSelection()
+
+        assertTrue(model.selected.value.isEmpty())
+    }
+
+    @Test
+    fun `applyPreset clears the selection once it has run`() = runTest {
+        val model = vm()
+        model.load()
+        model.toggleSelection("com.example.game")
+
+        model.applyPreset(frugal)
+
+        assertTrue(model.selected.value.isEmpty())
+    }
+
+    @Test
+    fun `applyPreset skips a sensitive selected app by default and says so in the summary`() = runTest {
+        // com.example.sms is sensitive per the shared FakeSensitivityDetector
+        // wired into vm(); frugal's skipSensitive defaults to true.
+        val model = vm()
+        model.load()
+        model.toggleSelection("com.example.game")
+        model.toggleSelection("com.example.sms")
+
+        model.applyPreset(frugal)
+
+        val summary = model.state.value.bulkSummary
+        assertNotNull(summary)
+        assertTrue(summary!!.contains("1"))
+        assertTrue(summary.contains("notifications") || summary.contains("alarms"))
+    }
+
+    @Test
+    fun `an override on the sensitive package removes it from the skipped summary`() = runTest {
+        val overrides = DataStoreOverrideRepository(store())
+        val model = vm(overrides = overrides)
+        model.load()
+        model.toggleSelection("com.example.game")
+        model.toggleSelection("com.example.sms")
+        model.applyPreset(frugal)
+        assertTrue(model.state.value.bulkSummary!!.contains("Left"))
+
+        overrides.setOverridden("com.example.sms", true)
+        model.toggleSelection("com.example.game")
+        model.toggleSelection("com.example.sms")
+        model.applyPreset(frugal)
+
+        assertFalse(model.state.value.bulkSummary!!.contains("Left"))
+    }
+
+    @Test
+    fun `a bulk apply re-reads real state for touched packages only, via PolicyReader not a full rescan`() = runTest {
+        val counting = CountingAppRepository(FakeAppRepository(listOf(userApp, systemApp, smsApp)))
+        val model = vm(apps = counting)
+        model.load()
+        assertEquals(1, counting.loadCalls)
+
+        model.toggleSelection("com.example.game")
+        model.applyPreset(frugal)
+
+        // The fake shell's scripted reads never change: re-reading via
+        // PolicyReader after the bulk apply must still report the same real
+        // (unchanged) activity, exactly like the single-row honesty check.
+        val row = model.state.value.rows.first { it.app.packageName == "com.example.game" }
+        assertEquals(BackgroundActivity.RESTRICTED, row.activity)
+        assertEquals(1, counting.loadCalls)
+    }
+
+    @Test
+    fun `a failed package in a bulk apply is named by label in the summary without aborting the rest`() = runTest {
+        val shell = FakeShellBackend().apply {
+            // More specific match registered first - see the class doc above
+            // on FakeShellBackend's first-match-wins semantics.
+            script("appops set com.example.game", ShellResult(1, "", "permission denied"))
+            script("appops query-op", ShellResult(0, "com.example.game", ""))
+            script("deviceidle whitelist", ShellResult(0, "user,com.example.sms,10500", ""))
+            script("netpolicy list", ShellResult(0, "10456", ""))
+            script("appops set", ShellResult(0, "", ""))
+            script("netpolicy", ShellResult(0, "", ""))
+        }
+        val reckless = frugal.copy(id = "reckless", skipSensitive = false)
+        val model = vm(shell)
+        model.load()
+        model.toggleSelection("com.example.game")
+        model.toggleSelection("com.example.sms")
+
+        model.applyPreset(reckless)
+
+        val summary = model.state.value.bulkSummary!!
+        assertTrue("expected the app's label, not just its package name: $summary", summary.contains("Game"))
+        assertTrue("expected the failing lever named: $summary", summary.contains("appops"))
     }
 }
