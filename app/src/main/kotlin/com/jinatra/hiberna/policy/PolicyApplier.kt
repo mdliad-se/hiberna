@@ -45,7 +45,7 @@ class PolicyApplier(
         // command below still needs a uid to target; a package that vanished mid
         // operation is reported as a data-lever failure rather than silently skipped.
         val uid = apps.uidOf(pkg)
-            ?: return ApplyResult.Failed("data", "package not installed: $pkg", applied.toList())
+            ?: return ApplyResult.Failed("data", "package not installed", applied.toList())
 
         val verb = if (policy.restrictBackgroundData) "add" else "remove"
         val netpolicy = shell.exec(

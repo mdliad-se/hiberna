@@ -1,8 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package com.jinatra.hiberna.ui.screens.applist
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -16,6 +22,8 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 /**
  * Runs under Robolectric so it stays part of `:app:testDebugUnitTest` with no
@@ -120,8 +128,9 @@ class AppListScreenTest {
     fun `tapping a different activity state edits that row in place`() {
         // This is the screen's whole reason to exist: real background state,
         // editable. Tapping a non-current state must report the change;
-        // tapping the currently-active state must not (it is disabled, not a
-        // redundant re-apply).
+        // tapping the currently-active state must not - it stays enabled and
+        // announced as selected (see BrutalButton's `isSelected`), it is just
+        // a no-op tap rather than a redundant re-apply.
         var changed: Pair<String, BackgroundActivity>? = null
         compose.setContent {
             JinatraTheme {
@@ -134,12 +143,75 @@ class AppListScreenTest {
             }
         }
 
-        compose.onNodeWithText("UNRESTRICTED").performClick()
+        compose.onNodeWithText("Unrestricted").performClick()
         assertEquals("com.example.game" to BackgroundActivity.UNRESTRICTED, changed)
 
         changed = null
-        compose.onNodeWithText("RESTRICTED").performClick() // already current - disabled
+        compose.onNodeWithText("Restricted").performClick() // already current - no-op tap
         assertNull(changed)
+    }
+
+    @Test
+    @Config(qualifiers = "w360dp-h640dp")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun `the widest activity label lays out on a single line at 360dp`() {
+        // A real measurement, not arithmetic: pin the narrowest phone width
+        // Robolectric supports configuring directly, then compare the
+        // picker's actual laid-out label height against a reference `Text`
+        // using the same style with no width constraint at all. A
+        // single-line text's height is determined by its style's font
+        // metrics, not by which word is drawn, so a differently-worded
+        // reference (avoiding a duplicate-text match against the picker's
+        // own "Unrestricted" button) still gives a valid single-line
+        // baseline. If the picker's copy ever force-wraps mid-word again,
+        // its label height will be roughly double (or triple) this reference
+        // value and the assertion below will catch it. A test rule can only
+        // call setContent once, so both are composed together in one tree.
+        //
+        // @GraphicsMode(NATIVE) matters here, not just style: under
+        // Robolectric's default (legacy) graphics mode, text is not measured
+        // against real font metrics at all, so a wrap this test is meant to
+        // catch does not reproduce - confirmed by temporarily reverting this
+        // fix (20.dp content padding, 16.dp gap, ShadowSm, bodyLarge, no
+        // maxLines) under legacy mode: it stayed falsely green (constrained
+        // height matched the single-line reference regardless). The same
+        // revert under NATIVE mode failed for real: singleLine=19,
+        // constrained=57 (exactly 3 force-broken lines) - see
+        // AppRowColorTest's doc for why this codebase already needs NATIVE
+        // mode for real pixel/layout fidelity.
+        compose.setContent {
+            JinatraTheme {
+                Column {
+                    Text(
+                        text = "Reference",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.testTag("single-line-reference"),
+                    )
+                    AppListScreen(
+                        state = AppListState(rows = listOf(gameRow)), // RESTRICTED, so "Unrestricted" is a live option
+                        onQueryChange = {},
+                        onActivityChange = { _, _ -> },
+                        onRowClick = {},
+                    )
+                }
+            }
+        }
+
+        val singleLineHeight = compose.onNodeWithTag("single-line-reference").fetchSemanticsNode().size.height
+        // useUnmergedTree = true: the button is itself a clickable (a
+        // semantics merging boundary), so the *merged* node for its text
+        // reports the whole button's bounds (text plus contentPadding), not
+        // the Text's own tight bounds - the same reason AppRowColorTest
+        // needs it for the sensitivity chip.
+        val constrainedHeight = compose.onNodeWithText("Unrestricted", useUnmergedTree = true)
+            .fetchSemanticsNode().size.height
+
+        assertEquals(
+            "expected the widest activity-picker label (\"Unrestricted\") to lay out at its " +
+                "unconstrained single-line height at 360dp, not wrapped",
+            singleLineHeight,
+            constrainedHeight,
+        )
     }
 
     @Test
