@@ -65,7 +65,12 @@ flow warns you when you are about to break your own alarm clock.
 
 ## Building from source
 
-Requires JDK 17 or newer and the Android SDK with API 37.
+Requires **JDK 21** and the Android SDK with API 36.
+
+JDK 21 specifically: the build declares `jvmToolchain(21)` and deliberately
+does not use a toolchain auto-provisioning plugin, so Gradle will not download
+a JDK for you. Any JDK 21 on `JAVA_HOME` or `PATH` works - Android Studio
+bundles one at `<studio>/jbr`.
 
 ```bash
 git clone https://github.com/mdliad-se/hiberna.git
