@@ -110,10 +110,13 @@ class AppListSelectionWiringTest {
                     onRowClick = {},
                     selected = selected,
                     presets = DEFAULT_PRESETS,
-                    skippedCount = model.skippedCount(DEFAULT_PRESETS.first(), emptySet()),
+                    // F2: per-preset, not DEFAULT_PRESETS.first() borrowed for
+                    // every button - see AppListViewModel.skippedCount's doc.
+                    skippedCountFor = { preset -> model.skippedCount(preset, emptySet()) },
                     onToggleSelection = { pkg -> model.toggleSelection(pkg); sync() },
                     onApplyPreset = { preset -> runBlocking { model.applyPreset(preset) }; sync() },
                     onCancelSelection = { model.clearSelection(); sync() },
+                    onDismissBulkSummary = { model.dismissBulkSummary(); sync() },
                 )
             }
         }
@@ -137,6 +140,15 @@ class AppListSelectionWiringTest {
         assertEquals("Changed 1 app.", model.state.value.bulkSummary)
         assertTrue(model.selected.value.isEmpty())
         compose.onNodeWithText("1 selected").assertDoesNotExist()
+        // F1: the summary must actually render, not just live in state - this
+        // is the review finding's exact "computed, tested, and never shown"
+        // gap, made concrete against a real AppListViewModel/AppListScreen
+        // pairing rather than AppListScreenTest's directly-supplied state.
+        compose.onNodeWithText("Changed 1 app.", substring = true).assertIsDisplayed()
+
+        compose.onNodeWithText("Dismiss").performClick()
+        compose.onNodeWithText("Changed 1 app.", substring = true).assertDoesNotExist()
+        assertEquals(null, model.state.value.bulkSummary)
     }
 
     @Test
@@ -161,7 +173,7 @@ class AppListSelectionWiringTest {
                     onRowClick = {},
                     selected = selected,
                     presets = DEFAULT_PRESETS,
-                    skippedCount = 0,
+                    skippedCountFor = { 0 },
                     onToggleSelection = { pkg -> model.toggleSelection(pkg); sync() },
                     onApplyPreset = { preset -> runBlocking { model.applyPreset(preset) }; sync() },
                     onCancelSelection = { model.clearSelection(); sync() },
@@ -203,7 +215,7 @@ class AppListSelectionWiringTest {
                     onRowClick = { rowClicks++ },
                     selected = selected,
                     presets = DEFAULT_PRESETS,
-                    skippedCount = 0,
+                    skippedCountFor = { 0 },
                     onToggleSelection = { pkg -> model.toggleSelection(pkg); sync() },
                     onApplyPreset = { preset -> runBlocking { model.applyPreset(preset) }; sync() },
                     onCancelSelection = { model.clearSelection(); sync() },

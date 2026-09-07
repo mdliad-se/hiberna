@@ -149,16 +149,18 @@ class MainActivity : ComponentActivity() {
                     onRowClick = { pkg -> nav = Nav.Detail(pkg) },
                     selected = selected,
                     presets = presets,
-                    // Mirrors AppListSelectionWiringTest's own wiring: BulkBar
-                    // shows one guardrail preview regardless of which preset
-                    // the user ultimately taps, so the first preset stands in
-                    // for "how many of the current selection would be skipped
-                    // right now" - see AppListViewModel.skippedCount's own doc.
-                    skippedCount = presets.firstOrNull()?.let { model.skippedCount(it, overridden) } ?: 0,
+                    // F2 fix: each preset's own button previews its own
+                    // guardrail skip count, not one number borrowed from
+                    // presets.first() - PresetScreen lets skipSensitive be
+                    // toggled per preset, so a shared count could describe
+                    // one preset's guardrail while a different preset's
+                    // button is the one actually tapped.
+                    skippedCountFor = { preset -> model.skippedCount(preset, overridden) },
                     onToggleSelection = model::toggleSelection,
                     onApplyPreset = { preset -> lifecycleScope.launch { model.applyPreset(preset) } },
                     onCancelSelection = model::clearSelection,
                     onOpenPresets = { nav = Nav.Presets },
+                    onDismissBulkSummary = model::dismissBulkSummary,
                 )
 
                 val detailPackage = (nav as? Nav.Detail)?.packageName

@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Placeholder theme for Task 2 scaffolding. Task 10 (brutalist UI, per
-         Jinatra Brand Guidelines v1.1) replaces this with the real theme. -->
+    <!-- The real brutalist canvas (Cream, never white) is painted by
+         JinatraTheme's own Surface (see JinatraTheme.kt) - Compose owns the
+         whole window content, so this XML theme only needs to avoid
+         fighting that with its own background before Compose takes over. -->
     <style name="Theme.Hiberna" parent="android:Theme.Material.Light.NoActionBar" />
 </resources>

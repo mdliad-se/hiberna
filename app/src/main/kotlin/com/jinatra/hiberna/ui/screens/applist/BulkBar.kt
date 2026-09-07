@@ -19,40 +19,32 @@ import com.jinatra.hiberna.ui.theme.Paper
 import com.jinatra.hiberna.ui.theme.ShadowLg
 import com.jinatra.hiberna.ui.theme.Teal
 
-/**
- * The one control on this screen allowed a 10.dp shadow: bulk apply is both
- * the reason hiberna exists and the single most consequential tap in the
- * app, so it gets the hero treatment brand v1.1 reserves for exactly one
- * element per view.
- *
- * Every [BrutalButton] below is passed `shadow = 0.dp` on purpose: this bar
- * is already a slab (its own [brutalSurface] with [ShadowLg]), and brand
- * v1.1 is explicit that "a slab inside a slab drops its shadow entirely and
- * keeps just the border" - a nested shadow here would land on this bar's own
- * border rather than reading as a separate control, exactly the layering
- * [com.jinatra.hiberna.ui.screens.applist.AppRow]'s `ActivityPicker` already
- * avoids for the same reason.
- *
- * The preset buttons use [Teal], never [com.jinatra.hiberna.ui.theme.Product]:
- * they are this screen's primary action - the whole reason this bar exists -
- * and brand v1.1 is explicit that Product never replaces Teal for a primary
- * action; Product is reserved for this app's own accent surfaces elsewhere.
- *
- * [skippedCount] is surfaced only when positive: a "0 apps will be left
- * alone" line would be silence dressed up as information. When it is
- * positive, the guardrail explains *why* those apps are being left out
- * (notifications, alarms) rather than just reporting a bare number - see the
- * task report for the fuller reasoning on what a user actually needs to see
- * around a bulk apply.
- */
+// The one control on this screen allowed a 10.dp shadow: bulk apply is the
+// reason hiberna exists, so it gets the hero treatment brand v1.1 reserves
+// for exactly one element per view. Every BrutalButton below passes
+// shadow = 0.dp on purpose: this bar is already a slab, and brand v1.1 says
+// a slab inside a slab drops its shadow and keeps just the border.
+//
+// F2 fix: skippedCountFor is a function of the preset, not one shared Int.
+// PresetScreen lets each preset skipSensitive toggle independently, so a
+// single number borrowed from one preset could preview a decision a
+// different preset button does not honour. Each preset with a positive
+// count gets its own named line above the (still horizontal) button row.
+//
+// The buttons stay in one Row rather than one Column per preset: an
+// earlier draft stacked three full-width buttons vertically, tripling this
+// bar height, and on a caller using a small default test window that
+// pushed the Cancel button below the simulated screen edge - the click
+// silently missed with no exception. Named text lines above one row keep
+// the height unchanged in the common (nothing skipped) case.
 @Composable
 fun BulkBar(
     selectedCount: Int,
-    skippedCount: Int,
     presets: List<Preset>,
     onApply: (Preset) -> Unit,
     onClear: () -> Unit,
     modifier: Modifier = Modifier,
+    skippedCountFor: (Preset) -> Int = { 0 },
 ) {
     Column(
         modifier = modifier
@@ -66,12 +58,15 @@ fun BulkBar(
             style = MaterialTheme.typography.titleLarge,
         )
 
-        if (skippedCount > 0) {
-            Text(
-                text = "$skippedCount will be left alone - restricting them may stop " +
-                    "notifications or alarms. Open an app to override it.",
-                style = MaterialTheme.typography.bodyLarge,
-            )
+        presets.forEach { preset ->
+            val skipped = skippedCountFor(preset)
+            if (skipped > 0) {
+                Text(
+                    text = "${preset.name}: $skipped will be left alone - restricting them " +
+                        "may stop notifications or alarms. Open an app to override it.",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            }
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {

@@ -52,6 +52,12 @@ data class BulkOutcome(
  * explicitly overridden this *specific* package (an override must never
  * leak across apps - see the class doc on [BulkApplier]).
  *
+ * `sensitivity != Sensitivity.NONE` - not `== Sensitivity.LIKELY_BREAKS` -
+ * so [Sensitivity.UNKNOWN] is skipped too (F6): when a detection source
+ * threw instead of answering, the one safe assumption is "treat it like a
+ * sensitive app until a human says otherwise", never "treat the failure as
+ * proof nothing here is sensitive".
+ *
  * This is `internal`, not private, and is the only place this decision is
  * expressed: [BulkApplier.apply] and [com.jinatra.hiberna.ui.screens.applist.AppListViewModel.skippedCount]
  * both call this exact function rather than each maintaining their own copy,
@@ -59,7 +65,7 @@ data class BulkOutcome(
  * drift from what actually gets skipped at apply time.
  */
 internal fun BulkTarget.isSkippedByGuardrail(preset: Preset, overridden: Set<String>): Boolean =
-    preset.skipSensitive && sensitivity == Sensitivity.LIKELY_BREAKS && packageName !in overridden
+    preset.skipSensitive && sensitivity != Sensitivity.NONE && packageName !in overridden
 
 /**
  * Applies one [Preset] across many packages.

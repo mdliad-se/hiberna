@@ -14,10 +14,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
-/**
- * Runs under Robolectric so it stays part of `:app:testDebugUnitTest` - same
- * pattern as AppListScreenTest/BrutalButtonTest.
- */
 @RunWith(RobolectricTestRunner::class)
 class BulkBarTest {
 
@@ -30,7 +26,7 @@ class BulkBarTest {
     fun `shows the selected count`() {
         compose.setContent {
             JinatraTheme {
-                BulkBar(selectedCount = 12, skippedCount = 0, presets = listOf(frugal), onApply = {}, onClear = {})
+                BulkBar(selectedCount = 12, presets = listOf(frugal), onApply = {}, onClear = {})
             }
         }
 
@@ -41,7 +37,13 @@ class BulkBarTest {
     fun `explains a skip count instead of staying silent about it`() {
         compose.setContent {
             JinatraTheme {
-                BulkBar(selectedCount = 5, skippedCount = 2, presets = listOf(frugal), onApply = {}, onClear = {})
+                BulkBar(
+                    selectedCount = 5,
+                    presets = listOf(frugal),
+                    onApply = {},
+                    onClear = {},
+                    skippedCountFor = { 2 },
+                )
             }
         }
 
@@ -53,15 +55,10 @@ class BulkBarTest {
     fun `says nothing about a skip count when it is zero`() {
         compose.setContent {
             JinatraTheme {
-                BulkBar(selectedCount = 5, skippedCount = 0, presets = listOf(frugal), onApply = {}, onClear = {})
+                BulkBar(selectedCount = 5, presets = listOf(frugal), onApply = {}, onClear = {})
             }
         }
 
-        // No guardrail copy at all when nothing was left out - a "0 will be
-        // left alone" message would just be noise. Also assert something IS
-        // rendered (the selected count), so an empty/no-op composable - which
-        // would trivially pass the assertDoesNotExist above too - cannot pass
-        // this test.
         compose.onNodeWithText("alone", substring = true).assertDoesNotExist()
         compose.onNodeWithText("5 selected").assertIsDisplayed()
     }
@@ -73,7 +70,6 @@ class BulkBarTest {
             JinatraTheme {
                 BulkBar(
                     selectedCount = 3,
-                    skippedCount = 0,
                     presets = listOf(frugal, offline),
                     onApply = { applied = it },
                     onClear = {},
@@ -93,7 +89,6 @@ class BulkBarTest {
             JinatraTheme {
                 BulkBar(
                     selectedCount = 3,
-                    skippedCount = 0,
                     presets = listOf(frugal),
                     onApply = {},
                     onClear = { cleared = true },
@@ -108,26 +103,38 @@ class BulkBarTest {
 
     @Test
     fun `never uses Hibernate as a UI verb`() {
-        // Standing guard on a Global Constraint (see BrutalButtonTest's own
-        // copy of this rule): Android ships its own App Hibernation feature
-        // that does something different.
         compose.setContent {
             JinatraTheme {
                 BulkBar(
                     selectedCount = 40,
-                    skippedCount = 6,
                     presets = listOf(frugal, offline),
                     onApply = {},
                     onClear = {},
+                    skippedCountFor = { 6 },
                 )
             }
         }
 
         compose.onNodeWithText("Hibernate", substring = true).assertDoesNotExist()
-        // Also assert real content is displayed, so an empty/no-op
-        // composable - which would trivially pass the assertDoesNotExist
-        // above too - cannot pass this test.
         compose.onNodeWithText("40 selected").assertIsDisplayed()
         compose.onNodeWithText("Offline").assertIsDisplayed()
+    }
+
+    @Test
+    fun `each preset button previews its own skip count, not a shared one`() {
+        compose.setContent {
+            JinatraTheme {
+                BulkBar(
+                    selectedCount = 10,
+                    presets = listOf(frugal, offline),
+                    onApply = {},
+                    onClear = {},
+                    skippedCountFor = { preset -> if (preset.id == "frugal") 3 else 7 },
+                )
+            }
+        }
+
+        compose.onNodeWithText("3 will be left alone", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("7 will be left alone", substring = true).assertIsDisplayed()
     }
 }

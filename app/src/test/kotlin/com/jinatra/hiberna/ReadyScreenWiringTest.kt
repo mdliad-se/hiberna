@@ -164,11 +164,14 @@ class ReadyScreenWiringTest {
                     onRowClick = { pkg -> nav = Nav.Detail(pkg) },
                     selected = selected,
                     presets = DEFAULT_PRESETS,
-                    skippedCount = model.skippedCount(DEFAULT_PRESETS.first(), overridden),
+                    // F2: per-preset, not DEFAULT_PRESETS.first() borrowed for
+                    // every button - see AppListViewModel.skippedCount's doc.
+                    skippedCountFor = { preset -> model.skippedCount(preset, overridden) },
                     onToggleSelection = { pkg -> model.toggleSelection(pkg); sync() },
                     onApplyPreset = { preset -> runBlocking { model.applyPreset(preset) }; sync() },
                     onCancelSelection = { model.clearSelection(); sync() },
                     onOpenPresets = { nav = Nav.Presets },
+                    onDismissBulkSummary = { model.dismissBulkSummary(); sync() },
                 )
 
                 val detailPackage = (current as? Nav.Detail)?.packageName
@@ -267,6 +270,11 @@ class ReadyScreenWiringTest {
             "expected a real appops write through the view model's own PolicyApplier",
             shell.executed.any { it.joinToString(" ").contains("appops set") },
         )
+        // F1: the summary AppListViewModel.applyPreset computes must actually
+        // reach the screen - before this fix it was computed, tested via
+        // AppListViewModel.state.value.bulkSummary, and never rendered by any
+        // composable a real user could see.
+        compose.onNodeWithText("Changed 1 app.", substring = true).assertIsDisplayed()
     }
 
     @Test

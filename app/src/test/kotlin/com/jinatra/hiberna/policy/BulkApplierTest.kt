@@ -109,4 +109,22 @@ class BulkApplierTest {
         val outcome = bulk(okShell()).apply(listOf(game, sms), frugal, overridden = emptySet())
         assertEquals(listOf("com.example.sms"), outcome.skipped)
     }
+
+    @Test
+    fun `an UNKNOWN classification is skipped the same as LIKELY_BREAKS, not treated as safe`() = runTest {
+        // F6: a detection source that threw must degrade the guardrail
+        // toward "treat as sensitive", never toward "treat as safe to
+        // restrict". Sensitivity.UNKNOWN is what PlatformSensitivityDetector
+        // now reports for exactly that case; this is the guardrail-side half
+        // of that fix - without it, an UNKNOWN app would be treated the same
+        // as Sensitivity.NONE and get bulk-restricted with no skip, no
+        // preview count, and no error, which was F6's actual failure mode.
+        val unknownTarget = BulkTarget("com.example.unknown", Sensitivity.UNKNOWN)
+
+        assertTrue(unknownTarget.isSkippedByGuardrail(frugal, overridden = emptySet()))
+        assertFalse(unknownTarget.isSkippedByGuardrail(frugal, overridden = setOf("com.example.unknown")))
+
+        val outcome = bulk(okShell()).apply(listOf(game, unknownTarget), frugal, overridden = emptySet())
+        assertEquals(listOf("com.example.unknown"), outcome.skipped)
+    }
 }

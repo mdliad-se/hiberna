@@ -26,6 +26,7 @@ import com.jinatra.hiberna.ui.theme.InkColor
 import com.jinatra.hiberna.ui.theme.Paper
 import com.jinatra.hiberna.ui.theme.ShadowMd
 import com.jinatra.hiberna.ui.theme.ShadowSm
+import com.jinatra.hiberna.ui.theme.Mist
 import com.jinatra.hiberna.ui.theme.Signal
 
 /**
@@ -86,11 +87,12 @@ fun AppListScreen(
     onRowClick: (String) -> Unit,
     selected: Set<String> = emptySet(),
     presets: List<Preset> = emptyList(),
-    skippedCount: Int = 0,
+    skippedCountFor: (Preset) -> Int = { 0 },
     onToggleSelection: (String) -> Unit = {},
     onApplyPreset: (Preset) -> Unit = {},
     onCancelSelection: () -> Unit = {},
     onOpenPresets: () -> Unit = {},
+    onDismissBulkSummary: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
@@ -143,6 +145,40 @@ fun AppListScreen(
             )
         }
 
+        // F1: the bulk-apply summary was computed, tested and dropped on the
+        // floor - never rendered anywhere, so a user who bulk-applied a
+        // preset across a hundred apps saw the selection clear with no word
+        // on what actually happened. Rendered here in Mist, not Signal: this
+        // screen's error banner directly above already spends this screen's
+        // one Signal highlight (brand v1.1: Signal at most once per screen),
+        // and a bulk-apply summary is informational, not an error - Mist is
+        // the brand's own "secondary surface" token, distinct from both the
+        // Signal error banner and the Cream/Paper canvas.
+        state.bulkSummary?.let { summary ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 16.dp)
+                    .brutalSurface(fill = Mist, shadow = ShadowSm)
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = summary,
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.weight(1f).padding(end = 16.dp),
+                )
+                BrutalButton(
+                    text = "Dismiss",
+                    onClick = onDismissBulkSummary,
+                    fill = Paper,
+                    contentColor = InkColor,
+                    shadow = 0.dp,
+                )
+            }
+        }
+
         LazyColumn(
             modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -178,8 +214,8 @@ fun AppListScreen(
         if (selected.isNotEmpty()) {
             BulkBar(
                 selectedCount = selected.size,
-                skippedCount = skippedCount,
                 presets = presets,
+                skippedCountFor = skippedCountFor,
                 onApply = onApplyPreset,
                 onClear = onCancelSelection,
                 modifier = Modifier.fillMaxWidth().padding(top = 16.dp),

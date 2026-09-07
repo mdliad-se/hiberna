@@ -65,6 +65,24 @@ class PresetRepositoryTest {
     }
 
     @Test
+    fun `editing an existing preset preserves its position instead of moving it to the end`() = runTest {
+        // Review finding under F2: mutate's old "filterNot + append" shape
+        // meant re-saving ANY existing preset - even just flipping a toggle -
+        // silently moved it to the end of the list. That would also move
+        // which preset presets.first() (and BulkBar's per-preset ordering)
+        // describes, purely as a side effect of an unrelated edit.
+        val repo = DataStorePresetRepository(emptyStore())
+        repo.save(Preset("a", "A", BackgroundActivity.RESTRICTED, true))
+        repo.save(Preset("b", "B", BackgroundActivity.RESTRICTED, true))
+        repo.save(Preset("c", "C", BackgroundActivity.RESTRICTED, true))
+
+        repo.save(Preset("a", "A renamed", BackgroundActivity.OPTIMIZED, false))
+
+        val ids = repo.presets.first().map { it.id }
+        assertEquals(listOf("a", "b", "c"), ids)
+    }
+
+    @Test
     fun `deletes by id`() = runTest {
         val repo = DataStorePresetRepository(emptyStore())
         repo.save(Preset("a", "First", BackgroundActivity.RESTRICTED, true))

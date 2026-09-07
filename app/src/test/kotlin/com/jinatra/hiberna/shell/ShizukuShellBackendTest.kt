@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 package com.jinatra.hiberna.shell
 
 import com.jinatra.hiberna.privilege.FakeShizukuPlatform

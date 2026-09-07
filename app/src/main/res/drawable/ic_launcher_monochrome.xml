@@ -1,16 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Jinatra Brand Guidelines v1.1 adaptive icon foreground layer - the "h" +
-     node glyph copied in from the sibling brand/ directory's
-     android/ic_launcher_foreground.svg (not referenced at build time - see
-     ic_launcher_background.xml's doc)
-     (Sweet Cream #FFEACF on transparent), converted to VectorDrawable syntax.
-     The nested <group> transforms below mirror that SVG's own nested
-     transform="translate(...) scale(...)" groups exactly, rather than
-     pre-multiplying the coordinates by hand, so this stays a faithful,
-     checkable copy of the source asset. Viewport kept at the SVG's own
-     432x432 units (4x the usual 108dp adaptive-icon grid) purely so every
-     coordinate below can be copied verbatim from the source; width/height
-     still render at the standard 108dp. -->
+<!-- Jinatra Brand Guidelines v1.1 adaptive icon monochrome layer (Android
+     13+ themed icons) - same glyph geometry as ic_launcher_foreground.xml,
+     single-tone, copied in from the sibling brand/ directory's
+     android/ic_launcher_monochrome.svg (not referenced at build time);
+     the system re-tints this to the user's chosen theme colour, so the
+     literal colour value here is inert other than needing to be opaque. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
@@ -24,19 +18,19 @@
         <group android:translateX="-14">
             <path
                 android:pathData="M178,132V380"
-                android:strokeColor="#FFEACF"
+                android:strokeColor="#000000"
                 android:strokeWidth="38"
                 android:strokeLineCap="round"
                 android:strokeLineJoin="round" />
             <path
                 android:pathData="M178,262c0,-46 36,-66 72,-66 42,0 68,28 68,70v114"
-                android:strokeColor="#FFEACF"
+                android:strokeColor="#000000"
                 android:strokeWidth="38"
                 android:strokeLineCap="round"
                 android:strokeLineJoin="round" />
             <path
                 android:pathData="M390,150 a24,24 0 1,0 -48,0 a24,24 0 1,0 48,0"
-                android:fillColor="#FFEACF" />
+                android:fillColor="#000000" />
         </group>
     </group>
 </vector>

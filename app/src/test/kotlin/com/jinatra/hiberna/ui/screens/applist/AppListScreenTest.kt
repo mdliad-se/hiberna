@@ -252,4 +252,46 @@ class AppListScreenTest {
 
         compose.onNodeWithText("No apps match that search.").assertIsDisplayed()
     }
+
+    @Test
+    fun `renders the bulk-apply summary instead of dropping it on the floor`() {
+        // F1: AppListState.bulkSummary was computed, tested and had no
+        // consumer in this screen - AppListScreen took no summary parameter
+        // at all. A user who bulk-applied a preset across a hundred apps saw
+        // the selection clear with no word on what happened.
+        var dismissed = false
+        compose.setContent {
+            JinatraTheme {
+                AppListScreen(
+                    state = AppListState(rows = listOf(gameRow), bulkSummary = "Changed 1 app."),
+                    onQueryChange = {},
+                    onActivityChange = { _, _ -> },
+                    onRowClick = {},
+                    onDismissBulkSummary = { dismissed = true },
+                )
+            }
+        }
+
+        compose.onNodeWithText("Changed 1 app.").assertIsDisplayed()
+
+        compose.onNodeWithText("Dismiss").performClick()
+
+        assertEquals(true, dismissed)
+    }
+
+    @Test
+    fun `shows no bulk-apply summary when there is nothing to report`() {
+        compose.setContent {
+            JinatraTheme {
+                AppListScreen(
+                    state = AppListState(rows = listOf(gameRow), bulkSummary = null),
+                    onQueryChange = {},
+                    onActivityChange = { _, _ -> },
+                    onRowClick = {},
+                )
+            }
+        }
+
+        compose.onNodeWithText("Dismiss").assertDoesNotExist()
+    }
 }

@@ -80,7 +80,20 @@ class DataStorePresetRepository(
         dataStore.data.map { prefs -> isUnparseable(prefs[PRESETS_KEY]) }
 
     override suspend fun save(preset: Preset) = mutate { current ->
-        current.filterNot { it.id == preset.id } + preset
+        // F2 (order-preservation follow-up): edit in place when this id
+        // already exists, rather than filtering it out and appending the
+        // new value at the end. Appending on every edit meant re-saving any
+        // existing preset (e.g. flipping its skipSensitive toggle) silently
+        // moved it to the end of the list - the exact bug the BulkBar/
+        // MainActivity review finding calls out, since DEFAULT_PRESETS.first()
+        // (and BulkBar's per-preset rendering order) would then describe a
+        // different preset than the one a user just edited. A genuinely new
+        // id still appends, same as before.
+        if (current.any { it.id == preset.id }) {
+            current.map { if (it.id == preset.id) preset else it }
+        } else {
+            current + preset
+        }
     }
 
     override suspend fun delete(id: String) = mutate { current ->

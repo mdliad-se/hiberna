@@ -235,6 +235,26 @@ class SensitivityDetectorTest {
         val detector = PlatformSensitivityDetector(throwingContext, staticList = emptySet())
 
         assertEquals(Sensitivity.LIKELY_BREAKS, detector.classify(flaggedElsewhere))
+        // F6: a package no *surviving* source flags is no longer reported as
+        // the plain, all-clear NONE - a source threw, so "nothing flagged
+        // it" cannot be trusted the same way a run where every source
+        // actually got to look would be. Before F6 this asserted
+        // Sensitivity.NONE here, which is exactly the bug the review finding
+        // describes: a throwing AccountManager (or a package-heavy device's
+        // TransactionTooLargeException from getInstalledPackages) made every
+        // unflagged app look silently safe to restrict.
+        assertEquals(Sensitivity.UNKNOWN, detector.classify("com.example.ordinary"))
+    }
+
+    @Test
+    fun `every source succeeding with nothing flagged is still NONE, not UNKNOWN`() = runTest {
+        // The negative control for the test above: UNKNOWN must only appear
+        // when a source genuinely threw, never merely because a package was
+        // not flagged by anything. Without this test, a detector that always
+        // returned UNKNOWN for an unflagged package (whether or not anything
+        // actually threw) would still pass the throwing-source test above.
+        val detector = PlatformSensitivityDetector(context, staticList = emptySet())
+
         assertEquals(Sensitivity.NONE, detector.classify("com.example.ordinary"))
     }
 
