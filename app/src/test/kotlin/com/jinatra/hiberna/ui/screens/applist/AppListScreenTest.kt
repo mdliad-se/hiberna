@@ -10,6 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -342,7 +343,45 @@ class AppListScreenTest {
     }
 
     @Test
-    fun `toggling show-system-apps reports the new value`() {
+    fun `the row's detail affordance is marked invisibleToUser so a screen reader does not announce its bare glyph`() {
+        // F3 review finding: the chevron carried no content description and
+        // was not marked decorative, so a screen reader announced the bare
+        // "›" character on every row. It must still be visually present (see
+        // the test above) - `invisibleToUser()` does not remove the node or
+        // its merged text (confirmed: `onAllNodesWithText("›")` still finds
+        // it merged into the row's own text list even after this fix, since
+        // that flag is respected by real accessibility services, not by the
+        // test tree's own text matcher) - only the semantics property itself
+        // is a reliable signal here, so this test asserts that directly. The
+        // row's own label/package text already say what tapping it does.
+        compose.setContent {
+            JinatraTheme {
+                AppListScreen(
+                    state = AppListState(rows = listOf(gameRow)),
+                    onQueryChange = {},
+                    onActivityChange = { _, _ -> },
+                    onRowClick = {},
+                )
+            }
+        }
+
+        val node = compose.onNodeWithTag("row-detail-affordance", useUnmergedTree = true)
+            .assertIsDisplayed()
+            .fetchSemanticsNode()
+
+        assertTrue(
+            "expected the chevron to be marked invisibleToUser",
+            node.config.contains(SemanticsProperties.InvisibleToUser),
+        )
+    }
+
+    // F4 review finding: the old name, "toggling show-system-apps reports the
+    // new value", would still pass even if nothing actually filtered - it
+    // only checks the callback fires with the right value. Renamed to claim
+    // only what it verifies; the sibling test below already covers the
+    // actual filtering effect.
+    @Test
+    fun `toggling show-system-apps reports the new value via the callback`() {
         var lastShowSystem: Boolean? = null
         compose.setContent {
             JinatraTheme {

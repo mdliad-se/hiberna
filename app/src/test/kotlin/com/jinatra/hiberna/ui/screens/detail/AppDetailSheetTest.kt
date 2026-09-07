@@ -281,8 +281,13 @@ class AppDetailSheetTest {
         assertEquals(1, closed)
     }
 
+    // F4 review finding: the old name, "still shows the app's label and
+    // package alongside the close affordance", would still pass with a
+    // wired-up-but-inert Close button - it only checks display. Renamed to
+    // claim only what it verifies; the sibling test above already covers
+    // the effect of tapping Close.
     @Test
-    fun `still shows the app's label and package alongside the close affordance`() {
+    fun `the app's label, package and the Close label are all displayed together`() {
         compose.setContent {
             JinatraTheme {
                 AppDetailSheet(

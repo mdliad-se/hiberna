@@ -182,8 +182,14 @@ class PresetScreenTest {
         assertEquals(true, backTapped)
     }
 
+    // F4 review finding: this test's old name, "shows a title alongside the
+    // back affordance", would still pass with a wired-up-but-inert Back
+    // button - it only checks display, and "back affordance" read as though
+    // it covered the affordance's actual behaviour too. Renamed to claim
+    // only what it verifies; the sibling test above already covers the
+    // effect of tapping it.
     @Test
-    fun `shows a title alongside the back affordance`() {
+    fun `title and the Back label are both displayed`() {
         compose.setContent {
             JinatraTheme {
                 PresetScreen(presets = listOf(balanced, frugal), onSave = {}, onDelete = {}, onBack = {})

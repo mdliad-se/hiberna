@@ -14,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.invisibleToUser
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -167,11 +168,23 @@ fun AppRow(
             // it says so. This chevron is a pure hint, not a second tap
             // target of its own - `onClick`/`onLongClick` above already
             // cover the whole row via this row's own `combinedClickable`.
+            //
+            // F3 review finding: the glyph itself carries no meaning to a
+            // screen reader, so it must not be announced ("›" read aloud on
+            // every row would just be noise) - `invisibleToUser()` marks it
+            // decorative without hiding it visually. The row's own merged
+            // semantics node (this whole Column is one `combinedClickable`
+            // target) already carries the label and package name above,
+            // which already say what tapping the row opens - the detail
+            // sheet for that exact app - so no separate description is
+            // needed here.
             Text(
                 text = "›",
                 style = MaterialTheme.typography.titleLarge,
                 color = contentColor,
-                modifier = Modifier.testTag("row-detail-affordance"),
+                modifier = Modifier
+                    .testTag("row-detail-affordance")
+                    .semantics { invisibleToUser() },
             )
         }
         // The severity tier's badge - see this file's own doc above for why

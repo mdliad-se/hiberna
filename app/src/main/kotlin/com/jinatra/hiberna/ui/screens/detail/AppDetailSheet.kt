@@ -69,7 +69,11 @@ import com.jinatra.hiberna.ui.theme.ShadowMd
  * Every control here sits inside this composable's own [brutalSurface] slab,
  * so - brand v1.1: "a slab inside a slab drops its shadow entirely and keeps
  * just the border" - each carries `shadow = 0.dp` of its own, the same
- * convention `AppRow`'s picker and `BulkBar`'s buttons already follow.
+ * convention `AppRow`'s picker and `BulkBar`'s buttons already follow. The
+ * [BrutalTopBar] below passes `nestedInSlab = true` for the same reason - a
+ * review finding: it previously hardcoded its own back/close button's shadow
+ * to zero unconditionally, which happened to be correct here but was wrong
+ * on `PresetScreen`, whose bar is not nested in any slab.
  */
 @Composable
 fun AppDetailSheet(
@@ -89,7 +93,7 @@ fun AppDetailSheet(
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        BrutalTopBar(title = row.app.label, onBack = onClose, backLabel = "Close")
+        BrutalTopBar(title = row.app.label, onBack = onClose, backLabel = "Close", nestedInSlab = true)
         Text(text = row.app.packageName, style = MaterialTheme.typography.labelSmall)
 
         if (row.sensitivity == Sensitivity.LIKELY_BREAKS) {

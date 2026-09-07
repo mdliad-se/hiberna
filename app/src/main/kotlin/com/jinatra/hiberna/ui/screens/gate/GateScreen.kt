@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.jinatra.hiberna.privilege.PrivilegeState
 import com.jinatra.hiberna.ui.components.BrutalButton
+import com.jinatra.hiberna.ui.components.BrutalTopBar
 import com.jinatra.hiberna.ui.components.brutalSurface
 import com.jinatra.hiberna.ui.theme.Cream
 import com.jinatra.hiberna.ui.theme.InkColor
@@ -35,6 +36,14 @@ import com.jinatra.hiberna.ui.theme.Teal
  * [PrivilegeState.CHECKING] is a real, exhaustively-handled branch, not an
  * afterthought: see [CheckingIndicator] for why it renders a static brand-bar
  * rather than a spinner or nothing at all.
+ *
+ * Carries a [BrutalTopBar] like every other top-level surface `MainActivity`
+ * names (list, detail, presets) - a review finding: this was the one screen
+ * left with bare chrome, and inconsistent navigation on the very first screen
+ * a new user sees is exactly the "no proper navigation" complaint this
+ * bar exists to fix. No `onBack`: setup has nothing behind it to return to,
+ * and [BrutalTopBar]'s own doc is explicit that a dead control is worse than
+ * none.
  *
  * Every primary action here fills with [Teal], never [com.jinatra.hiberna.ui.theme.Product]:
  * `Tokens.kt` documents Product as the app-icon/accent colour that never
@@ -61,32 +70,43 @@ fun GateScreen(
             .fillMaxSize()
             .background(Cream)
             .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterVertically),
+        verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
+        // F1: every other top-level surface (list, detail, presets) got a
+        // BrutalTopBar; this one, the very first screen a new user sees, did
+        // not. No onBack here - there is nowhere to go back to from setup,
+        // and a dead control is worse than none (see BrutalTopBar's own doc:
+        // onBack is null on exactly the screens with nothing behind them).
+        BrutalTopBar(title = "hiberna")
         Column(
-            modifier = Modifier.brutalSurface(fill = Paper, shadow = ShadowMd).padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterVertically),
         ) {
-            Text(text = headline(state), style = MaterialTheme.typography.titleLarge)
-            Text(text = explanation(state), style = MaterialTheme.typography.bodyLarge)
+            Column(
+                modifier = Modifier.brutalSurface(fill = Paper, shadow = ShadowMd).padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Text(text = headline(state), style = MaterialTheme.typography.titleLarge)
+                Text(text = explanation(state), style = MaterialTheme.typography.bodyLarge)
 
-            when (state) {
-                PrivilegeState.CHECKING -> CheckingIndicator()
-                PrivilegeState.PERMISSION_DENIED ->
-                    BrutalButton(text = "Grant access", onClick = onRequest, fill = Teal)
-                PrivilegeState.SERVICE_NOT_RUNNING ->
-                    BrutalButton(text = "Check again", onClick = onRefresh, fill = Teal)
-                PrivilegeState.SHIZUKU_ABSENT ->
-                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        BrutalButton(text = "Install Shizuku", onClick = onInstall, fill = Teal)
-                        BrutalButton(
-                            text = "Check again",
-                            onClick = onRefresh,
-                            fill = Paper,
-                            contentColor = InkColor,
-                        )
-                    }
-                PrivilegeState.READY -> Unit
+                when (state) {
+                    PrivilegeState.CHECKING -> CheckingIndicator()
+                    PrivilegeState.PERMISSION_DENIED ->
+                        BrutalButton(text = "Grant access", onClick = onRequest, fill = Teal)
+                    PrivilegeState.SERVICE_NOT_RUNNING ->
+                        BrutalButton(text = "Check again", onClick = onRefresh, fill = Teal)
+                    PrivilegeState.SHIZUKU_ABSENT ->
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            BrutalButton(text = "Install Shizuku", onClick = onInstall, fill = Teal)
+                            BrutalButton(
+                                text = "Check again",
+                                onClick = onRefresh,
+                                fill = Paper,
+                                contentColor = InkColor,
+                            )
+                        }
+                    PrivilegeState.READY -> Unit
+                }
             }
         }
     }

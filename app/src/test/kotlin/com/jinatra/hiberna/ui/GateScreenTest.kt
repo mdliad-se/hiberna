@@ -154,6 +154,34 @@ class GateScreenTest {
         compose.onNodeWithTag("gate-progress").assertIsDisplayed()
     }
 
+    // --- F1: GateScreen was the one top-level surface MainActivity names ---
+    // --- (gate, list, detail, presets) left without a BrutalTopBar.       ---
+
+    @Test
+    fun everyStateShowsTheAppTitleInATopBar() {
+        compose.setContent {
+            JinatraTheme {
+                GateScreen(PrivilegeState.PERMISSION_DENIED, onRequest = {}, onRefresh = {}, onInstall = {})
+            }
+        }
+
+        compose.onNodeWithText("hiberna").assertIsDisplayed()
+    }
+
+    @Test
+    fun theTopBarOffersNoBackAffordance() {
+        // Setup has nowhere to go back to - a dead control is worse than
+        // none, so this screen's bar must never render "Back" or "Close".
+        compose.setContent {
+            JinatraTheme {
+                GateScreen(PrivilegeState.PERMISSION_DENIED, onRequest = {}, onRefresh = {}, onInstall = {})
+            }
+        }
+
+        compose.onNodeWithText("Back").assertDoesNotExist()
+        compose.onNodeWithText("Close").assertDoesNotExist()
+    }
+
     @Test
     fun readyRendersWithoutOfferingAnAction() {
         // MainActivity never routes READY through GateScreen, but the `when`

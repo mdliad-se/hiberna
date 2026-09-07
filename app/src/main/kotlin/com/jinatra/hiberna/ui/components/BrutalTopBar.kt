@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import com.jinatra.hiberna.ui.theme.BorderWidth
 import com.jinatra.hiberna.ui.theme.InkColor
 import com.jinatra.hiberna.ui.theme.Paper
+import com.jinatra.hiberna.ui.theme.ShadowSm
 
 /**
  * The brutalist top app bar v1.1 navigation gives every screen - before this,
@@ -57,6 +58,18 @@ import com.jinatra.hiberna.ui.theme.Paper
  * how each screen actually behaves - see the task report for the fuller
  * reasoning on why this is one affordance, not two.
  *
+ * [nestedInSlab] decides the back/close button's own shadow, per brand
+ * v1.1: "a slab inside a slab drops its shadow entirely and keeps just the
+ * border". `false` (the default) keeps the button's own [ShadowSm] - correct
+ * for `PresetScreen`, whose bar sits directly on the screen's Cream/Paper
+ * canvas, not inside any slab of its own, the same non-nested context
+ * `AppListScreen`'s bar is in for its Presets action (which also keeps its
+ * default shadow). `true` drops the shadow to zero - correct, and required,
+ * for `AppDetailSheet`, whose bar sits inside that sheet's own
+ * `brutalSurface(shadow = ShadowMd)` slab; a second shadow there would land
+ * on the outer slab's own border rather than a neighbouring control 16.dp
+ * away, the exact case this rule exists to prevent.
+ *
  * [actions] is a trailing slot for whatever a specific screen's bar carries -
  * the app list's "Presets" button is the only user of it today. Judgement
  * call, reasoned in the task report: the system-apps toggle deliberately does
@@ -71,6 +84,7 @@ fun BrutalTopBar(
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
     backLabel: String = "Back",
+    nestedInSlab: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     Row(
@@ -94,7 +108,7 @@ fun BrutalTopBar(
                 onClick = onBack,
                 fill = Paper,
                 contentColor = InkColor,
-                shadow = 0.dp,
+                shadow = if (nestedInSlab) 0.dp else ShadowSm,
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
             )
             Spacer(modifier = Modifier.width(12.dp))
