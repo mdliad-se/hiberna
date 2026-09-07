@@ -5,6 +5,8 @@ import com.jinatra.hiberna.apps.FakeAppRepository
 import com.jinatra.hiberna.apps.InstalledApp
 import com.jinatra.hiberna.guardrail.Sensitivity
 import com.jinatra.hiberna.preset.Preset
+import com.jinatra.hiberna.severity.Severity
+import com.jinatra.hiberna.severity.severityOf
 import com.jinatra.hiberna.shell.FakeShellBackend
 import com.jinatra.hiberna.shell.ShellResult
 import kotlinx.coroutines.test.runTest
@@ -126,5 +128,29 @@ class BulkApplierTest {
 
         val outcome = bulk(okShell()).apply(listOf(game, unknownTarget), frugal, overridden = emptySet())
         assertEquals(listOf("com.example.unknown"), outcome.skipped)
+    }
+
+    @Test
+    fun `bulk apply still skips an UNKNOWN target even though it now badges as CAUTION, not WILL_BREAK`() = runTest {
+        // F1: Severity.severityOf now maps Sensitivity.UNKNOWN to CAUTION so
+        // the badge stops claiming a confirmed hit it cannot support (see
+        // SeverityTest). This test pins that the skip decision never rode on
+        // that tier in the first place: isSkippedByGuardrail tests
+        // sensitivity directly, so the badge change here must not weaken the
+        // guardrail. It would fail if UNKNOWN were routed back through
+        // WILL_BREAK's tier to decide the skip, or if isSkippedByGuardrail's
+        // predicate were changed to key off severityOf's result instead of
+        // Sensitivity.isSensitive.
+        val unknownTarget = BulkTarget("com.example.unknown", Sensitivity.UNKNOWN)
+
+        assertEquals(
+            Severity.CAUTION,
+            severityOf(sensitivity = Sensitivity.UNKNOWN, isSystem = false, activity = BackgroundActivity.UNRESTRICTED),
+        )
+
+        val outcome = bulk(okShell()).apply(listOf(game, unknownTarget), frugal, overridden = emptySet())
+
+        assertEquals(listOf("com.example.unknown"), outcome.skipped)
+        assertEquals(listOf("com.example.game"), outcome.applied)
     }
 }

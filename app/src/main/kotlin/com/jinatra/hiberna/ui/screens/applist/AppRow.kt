@@ -15,6 +15,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.jinatra.hiberna.guardrail.Sensitivity
 import com.jinatra.hiberna.policy.BackgroundActivity
 import com.jinatra.hiberna.severity.Severity
 import com.jinatra.hiberna.ui.components.ActivityPicker
@@ -81,15 +82,22 @@ import com.jinatra.hiberna.ui.theme.Teal
  *   what makes [Severity.RECOMMENDED]'s badge stand out as an actual signal
  *   rather than one badge among a wall of them.
  * - [Severity.CAUTION] is an outline-only badge - [brutalSurface] with a
- *   transparent fill, so only its Ink border and "Caution" label draw; its
- *   fill is deliberately whatever is already behind it (this is the one tier
- *   most often paired with a system row's [Mist] fill, so it cannot reuse a
- *   solid colour without risking exactly the collision [Cream] was chosen to
- *   avoid for WILL_BREAK above). Next to WILL_BREAK's solid [Cream] chip and
- *   full sentence, an outline-only single word reads as clearly quieter - the
- *   two are never confusable as "the same warning twice", which is the
- *   judgment call the task brief asked to have reasoned through: both tiers
- *   mean "be careful", but only one of them is solid, filled, and spelled out.
+ *   transparent fill, so only its Ink border and its label draw; its fill is
+ *   deliberately whatever is already behind it (this is the one tier most
+ *   often paired with a system row's [Mist] fill, so it cannot reuse a solid
+ *   colour without risking exactly the collision [Cream] was chosen to avoid
+ *   for WILL_BREAK above). Next to WILL_BREAK's solid [Cream] chip and full
+ *   sentence, an outline-only badge reads as clearly quieter - the two are
+ *   never confusable as "the same warning twice", which is the judgment call
+ *   the task brief asked to have reasoned through: both tiers mean "be
+ *   careful", but only one of them is solid, filled, and spelled out. This
+ *   tier's label is not always the same word, though: a system app reads
+ *   "Caution", but a row whose [Sensitivity] is [Sensitivity.UNKNOWN] reads
+ *   "Couldn't check this app" instead - [Severity.severityOf] badges both the
+ *   same tier, but only one of them is a judgment call, and the other is an
+ *   admission that detection threw. Reusing WILL_BREAK's "May stop working if
+ *   restricted" sentence for the latter would claim a check happened when it
+ *   did not - see that function's own doc.
  *
  * Icons are loaded per-row by the UI layer rather than held on [InstalledApp]
  * - see that class's doc - but are not added here yet: no test in this task
@@ -161,7 +169,11 @@ fun AppRow(
             )
 
             Severity.CAUTION -> Text(
-                text = "Caution",
+                text = if (row.sensitivity == Sensitivity.UNKNOWN) {
+                    "Couldn't check this app"
+                } else {
+                    "Caution"
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = InkColor,
                 modifier = Modifier

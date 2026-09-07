@@ -2,6 +2,7 @@
 package com.jinatra.hiberna.policy
 
 import com.jinatra.hiberna.guardrail.Sensitivity
+import com.jinatra.hiberna.guardrail.isSensitive
 import com.jinatra.hiberna.preset.Preset
 
 /**
@@ -52,11 +53,16 @@ data class BulkOutcome(
  * explicitly overridden this *specific* package (an override must never
  * leak across apps - see the class doc on [BulkApplier]).
  *
- * `sensitivity != Sensitivity.NONE` - not `== Sensitivity.LIKELY_BREAKS` -
- * so [Sensitivity.UNKNOWN] is skipped too (F6): when a detection source
- * threw instead of answering, the one safe assumption is "treat it like a
+ * [Sensitivity.isSensitive] - not `== Sensitivity.LIKELY_BREAKS` - so
+ * [Sensitivity.UNKNOWN] is skipped too (F6): when a detection source threw
+ * instead of answering, the one safe assumption is "treat it like a
  * sensitive app until a human says otherwise", never "treat the failure as
- * proof nothing here is sensitive".
+ * proof nothing here is sensitive". This stays true even though
+ * [com.jinatra.hiberna.severity.severityOf] now badges an [Sensitivity.UNKNOWN]
+ * app as `CAUTION` rather than `WILL_BREAK` - the badge and this skip
+ * decision are deliberately independent (see that function's doc), and
+ * [Sensitivity.isSensitive] is the one predicate both derive from so they
+ * cannot quietly drift apart.
  *
  * This is `internal`, not private, and is the only place this decision is
  * expressed: [BulkApplier.apply] and [com.jinatra.hiberna.ui.screens.applist.AppListViewModel.skippedCount]
@@ -65,7 +71,7 @@ data class BulkOutcome(
  * drift from what actually gets skipped at apply time.
  */
 internal fun BulkTarget.isSkippedByGuardrail(preset: Preset, overridden: Set<String>): Boolean =
-    preset.skipSensitive && sensitivity != Sensitivity.NONE && packageName !in overridden
+    preset.skipSensitive && sensitivity.isSensitive && packageName !in overridden
 
 /**
  * Applies one [Preset] across many packages.

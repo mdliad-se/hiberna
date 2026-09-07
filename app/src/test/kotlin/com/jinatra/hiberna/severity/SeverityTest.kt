@@ -38,12 +38,16 @@ class SeverityTest {
     }
 
     @Test
-    fun `UNKNOWN never becomes RECOMMENDED or SAFE - it degrades to WILL_BREAK exactly like LIKELY_BREAKS`() {
-        // This is the invariant call out in the task brief: a detection
-        // failure must keep behaving conservatively through the severity
-        // model, not just through the old two-value guardrail.
+    fun `UNKNOWN never becomes RECOMMENDED or SAFE - it degrades to CAUTION, never a WILL_BREAK claim it cannot support`() {
+        // F1: a failed detection must keep behaving conservatively (never
+        // RECOMMENDED/SAFE), but the badge must not assert something hiberna
+        // does not know - it never ran a successful check, so it cannot say
+        // "this will break". CAUTION is the honest middle ground; see
+        // severityOf's own doc for why this is independent of the bulk-apply
+        // guardrail, which still skips UNKNOWN exactly like LIKELY_BREAKS
+        // (see BulkApplierTest).
         assertEquals(
-            Severity.WILL_BREAK,
+            Severity.CAUTION,
             severityOf(
                 sensitivity = Sensitivity.UNKNOWN,
                 isSystem = false,
@@ -51,10 +55,22 @@ class SeverityTest {
             ),
         )
         assertEquals(
-            Severity.WILL_BREAK,
+            Severity.CAUTION,
             severityOf(
                 sensitivity = Sensitivity.UNKNOWN,
                 isSystem = false,
+                activity = BackgroundActivity.RESTRICTED,
+            ),
+        )
+    }
+
+    @Test
+    fun `UNKNOWN is still CAUTION even for a system app, never promoted to WILL_BREAK`() {
+        assertEquals(
+            Severity.CAUTION,
+            severityOf(
+                sensitivity = Sensitivity.UNKNOWN,
+                isSystem = true,
                 activity = BackgroundActivity.RESTRICTED,
             ),
         )
@@ -116,13 +132,36 @@ class SeverityTest {
     }
 
     @Test
-    fun `tiers sort Recommended first, WILL_BREAK last - the whole payoff of the scale`() {
-        val expectedOrder = listOf(
-            Severity.RECOMMENDED,
-            Severity.SAFE,
-            Severity.CAUTION,
-            Severity.WILL_BREAK,
+    fun `severityOf's four real outputs sort Recommended first, WILL_BREAK last - the whole payoff of the scale`() {
+        // F4: unlike a bare check of the enum's declaration order, this
+        // actually calls severityOf for one representative input per tier
+        // and sorts the results it returns - so it would fail if a future
+        // edit reordered the enum without severityOf's mapping agreeing, not
+        // just if someone reordered the enum literals by hand.
+        val recommended = severityOf(
+            sensitivity = Sensitivity.NONE,
+            isSystem = false,
+            activity = BackgroundActivity.UNRESTRICTED,
         )
-        assertEquals(expectedOrder, Severity.values().sortedBy { it.ordinal })
+        val safe = severityOf(
+            sensitivity = Sensitivity.NONE,
+            isSystem = false,
+            activity = BackgroundActivity.RESTRICTED,
+        )
+        val caution = severityOf(
+            sensitivity = Sensitivity.NONE,
+            isSystem = true,
+            activity = BackgroundActivity.RESTRICTED,
+        )
+        val willBreak = severityOf(
+            sensitivity = Sensitivity.LIKELY_BREAKS,
+            isSystem = false,
+            activity = BackgroundActivity.RESTRICTED,
+        )
+
+        assertEquals(
+            listOf(Severity.RECOMMENDED, Severity.SAFE, Severity.CAUTION, Severity.WILL_BREAK),
+            listOf(willBreak, caution, recommended, safe).sortedBy { it.ordinal },
+        )
     }
 }

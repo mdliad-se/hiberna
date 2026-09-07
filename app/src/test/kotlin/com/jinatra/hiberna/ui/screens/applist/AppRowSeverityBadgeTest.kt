@@ -7,6 +7,8 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.dp
@@ -66,6 +68,13 @@ class AppRowSeverityBadgeTest {
         activity = BackgroundActivity.RESTRICTED,
         dataBlocked = false,
         sensitivity = Sensitivity.NONE,
+    )
+
+    private val unknownRow = AppRowState(
+        app = InstalledApp("com.example.mystery", "Mystery App", 10204, isSystem = false, isEnabled = true),
+        activity = BackgroundActivity.RESTRICTED,
+        dataBlocked = false,
+        sensitivity = Sensitivity.UNKNOWN,
     )
 
     private fun bitmapOf(activity: ComponentActivity): Bitmap {
@@ -152,14 +161,35 @@ class AppRowSeverityBadgeTest {
     }
 
     @Test
-    fun `a Recommended row never also shows the Caution or WILL_BREAK treatments`() {
+    fun `a Recommended row shows the Recommended badge and never also the Caution or WILL_BREAK treatments`() {
         compose.setContent {
             JinatraTheme {
                 AppRow(row = recommendedRow, onClick = {}, onActivityChange = {})
             }
         }
 
+        // F4: this test previously only asserted absences, so it would have
+        // passed even if severityOf returned a constant SAFE and no badge
+        // rendered at all. Asserting presence first makes it load-bearing.
+        compose.onNodeWithTag("tier-badge-recommended", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithTag("tier-badge-caution", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("sensitivity-chip", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun `an UNKNOWN row's Caution badge admits hiberna could not check it, never WILL_BREAK's sentence`() {
+        // F1: Sensitivity.UNKNOWN now badges as CAUTION (see SeverityTest),
+        // but it must not reuse either the system-app CAUTION copy or
+        // WILL_BREAK's "May stop working if restricted" sentence - both
+        // would claim more than hiberna actually knows.
+        compose.setContent {
+            JinatraTheme {
+                AppRow(row = unknownRow, onClick = {}, onActivityChange = {})
+            }
+        }
+
+        compose.onNodeWithTag("tier-badge-caution", useUnmergedTree = true)
+            .assertTextEquals("Couldn't check this app")
         compose.onNodeWithTag("sensitivity-chip", useUnmergedTree = true).assertDoesNotExist()
     }
 }
