@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package com.jinatra.hiberna.ui.theme
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Typography
@@ -35,6 +39,19 @@ import androidx.compose.ui.unit.sp
  * fourth screen forgetting it). [GateScreen]'s own explicit
  * `.background(Cream)` is now redundant but harmless - painting the same
  * colour twice is a no-op, not a conflict.
+ *
+ * **Window insets:** content used to render straight under the status bar
+ * (device-confirmed - the top of the app list sat beneath the clock) because
+ * nothing here ever consumed the system bar/cutout insets Android dispatches
+ * to an edge-to-edge window. The [Surface] above stays a plain
+ * `fillMaxSize()` with no inset padding of its own, so the Cream canvas it
+ * paints still reaches every edge - brand v1.1 wants Cream edge-to-edge, not
+ * boxed in by bars. Only the inner content [Box] consumes
+ * [WindowInsets.safeDrawing] (status/nav bars, display cutout, IME), at this
+ * same single pass-through point, so every screen - [GateScreen],
+ * `AppListScreen`, `AppDetailSheet`, `PresetScreen` - is pushed clear of the
+ * status bar, the notch and the navigation bar without any of them handling
+ * insets individually.
  */
 @Composable
 fun JinatraTheme(content: @Composable () -> Unit) {
@@ -60,7 +77,9 @@ fun JinatraTheme(content: @Composable () -> Unit) {
 
     MaterialTheme(colorScheme = colors, typography = typography) {
         Surface(modifier = Modifier.fillMaxSize(), color = Cream) {
-            content()
+            Box(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                content()
+            }
         }
     }
 }

@@ -23,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.jinatra.hiberna.privilege.PrivilegeState
@@ -63,6 +64,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Draws edge-to-edge on every minSdk (API 35+ forces this regardless
+        // of what the app does, per targetSdk 36 - but minSdk is 30, and
+        // without this call an API 30-34 device never dispatches non-zero
+        // system bar/cutout insets to Compose in the first place, so
+        // JinatraTheme's own safeDrawing padding would silently be a no-op
+        // there). The Cream canvas Surface still fills the whole window per
+        // JinatraTheme's kdoc; only [JinatraTheme]'s content padding reacts
+        // to the insets this unlocks.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
             JinatraTheme {
                 val gate = container.gate

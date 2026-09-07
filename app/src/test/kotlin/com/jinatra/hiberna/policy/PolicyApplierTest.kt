@@ -193,4 +193,95 @@ class PolicyApplierTest {
         assertTrue(result is ApplyResult.Failed)
         assertEquals(emptyList<String>(), (result as ApplyResult.Failed).applied)
     }
+
+    // --- Bug 1 (device-confirmed, API 36): `netpolicy remove` is not idempotent ---
+
+    /**
+     * Real device output, captured live: `cmd netpolicy remove
+     * restrict-background-blacklist 10219` on a uid that was never
+     * blacklisted exits 255 with `Error: UID 10219 not blacklisted` on
+     * stdout, stderr empty. `add` is confirmed idempotent on the same
+     * device, so only `remove` needs this fixture. The desired state
+     * (data not restricted) already holds, so this must be reported as
+     * success, not `ApplyResult.Failed("data", ...)` - which is what a
+     * user hit for almost every app before this fix, since "never
+     * blacklisted yet" is the normal starting state.
+     */
+    @Test
+    fun `removing a uid that was never blacklisted is treated as success, matching the real device response`() = runTest {
+        val shell = FakeShellBackend().apply {
+            script("appops set", ShellResult(0, "", ""))
+            script("deviceidle whitelist", ShellResult(0, "", ""))
+            script("netpolicy remove", ShellResult(255, "Error: UID 10456 not blacklisted", ""))
+        }
+
+        val result = applier(shell).apply(
+            AppPolicy("com.example.app", BackgroundActivity.OPTIMIZED, restrictBackgroundData = false)
+        )
+
+        assertEquals(ApplyResult.Success, result)
+    }
+
+    /**
+     * The exit-255/"not blacklisted" carve-out must never widen into
+     * "any netpolicy failure on remove is fine" - a genuine rejection
+     * (permission denial, here) still fails the data lever.
+     */
+    @Test
+    fun `a genuine netpolicy remove failure still fails, not just the not-blacklisted one`() = runTest {
+        val shell = FakeShellBackend().apply {
+            script("appops set", ShellResult(0, "", ""))
+            script("deviceidle whitelist", ShellResult(0, "", ""))
+            script("netpolicy remove", ShellResult(255, "", "Error: Permission denial"))
+        }
+
+        val result = applier(shell).apply(
+            AppPolicy("com.example.app", BackgroundActivity.OPTIMIZED, restrictBackgroundData = false)
+        )
+
+        assertTrue(result is ApplyResult.Failed)
+        assertEquals("data", (result as ApplyResult.Failed).lever)
+    }
+
+    // --- Bug 2: `cmd netpolicy` writes its error to stdout, not stderr ---
+
+    @Test
+    fun `a data-lever failure reason falls back to stdout when stderr is blank, matching the real device response`() = runTest {
+        val shell = FakeShellBackend().apply {
+            script("appops set", ShellResult(0, "", ""))
+            script("deviceidle whitelist", ShellResult(0, "", ""))
+            // A genuine failure (not "not blacklisted") that still writes to stdout only.
+            script("netpolicy remove", ShellResult(255, "Error: UID 10456 something else entirely", ""))
+        }
+
+        val result = applier(shell).apply(
+            AppPolicy("com.example.app", BackgroundActivity.OPTIMIZED, restrictBackgroundData = false)
+        )
+
+        assertTrue(result is ApplyResult.Failed)
+        assertEquals(
+            "Error: UID 10456 something else entirely",
+            (result as ApplyResult.Failed).reason,
+        )
+    }
+
+    @Test
+    fun `appops and battery failure reasons also fall back to stdout when stderr is blank`() = runTest {
+        val appOpsShell = FakeShellBackend().apply {
+            script("appops set", ShellResult(1, "appops error on stdout", ""))
+        }
+        val appOpsResult = applier(appOpsShell).apply(
+            AppPolicy("com.example.app", BackgroundActivity.RESTRICTED, restrictBackgroundData = false)
+        )
+        assertEquals("appops error on stdout", (appOpsResult as ApplyResult.Failed).reason)
+
+        val batteryShell = FakeShellBackend().apply {
+            script("appops set", ShellResult(0, "", ""))
+            script("deviceidle whitelist", ShellResult(1, "battery error on stdout", ""))
+        }
+        val batteryResult = applier(batteryShell).apply(
+            AppPolicy("com.example.app", BackgroundActivity.RESTRICTED, restrictBackgroundData = false)
+        )
+        assertEquals("battery error on stdout", (batteryResult as ApplyResult.Failed).reason)
+    }
 }
