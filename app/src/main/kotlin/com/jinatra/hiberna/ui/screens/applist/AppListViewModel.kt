@@ -348,7 +348,12 @@ class AppListViewModel(
         _state.value = current.copy(
             rows = all
                 .filter { current.showSystem || !it.app.isSystem }
-                .filter { needle.isEmpty() || it.app.label.lowercase().contains(needle) },
+                .filter { needle.isEmpty() || it.app.label.lowercase().contains(needle) }
+                // Recommended first - the whole payoff of the severity scale
+                // is answering "where do I start" (see the task brief), so
+                // this sort is not cosmetic. Tiebreak alphabetical by label,
+                // the list's pre-existing order, preserved within a tier.
+                .sortedWith(compareBy({ it.severity.ordinal }, { it.app.label.lowercase() })),
         )
     }
 

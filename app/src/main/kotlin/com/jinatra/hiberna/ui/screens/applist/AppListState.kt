@@ -4,13 +4,23 @@ package com.jinatra.hiberna.ui.screens.applist
 import com.jinatra.hiberna.apps.InstalledApp
 import com.jinatra.hiberna.guardrail.Sensitivity
 import com.jinatra.hiberna.policy.BackgroundActivity
+import com.jinatra.hiberna.severity.Severity
+import com.jinatra.hiberna.severity.severityOf
 
 data class AppRowState(
     val app: InstalledApp,
     val activity: BackgroundActivity,
     val dataBlocked: Boolean,
     val sensitivity: Sensitivity,
-)
+) {
+    /**
+     * The four-tier severity scale (see [severityOf]), derived from fields
+     * this row already carries - never stored separately, so it can never
+     * drift out of sync with [app], [activity] or [sensitivity].
+     */
+    val severity: Severity
+        get() = severityOf(sensitivity = sensitivity, isSystem = app.isSystem, activity = activity)
+}
 
 data class AppListState(
     val rows: List<AppRowState> = emptyList(),
