@@ -159,4 +159,38 @@ class PresetScreenTest {
             assertEquals(0, it.size)
         }
     }
+
+    // --- v1.1 navigation: the back affordance Task 2 adds - previously the ---
+    // --- only way back from this screen was the invisible system gesture. ---
+
+    @Test
+    fun `tapping Back reports the callback`() {
+        var backTapped = false
+        compose.setContent {
+            JinatraTheme {
+                PresetScreen(
+                    presets = listOf(balanced, frugal),
+                    onSave = {},
+                    onDelete = {},
+                    onBack = { backTapped = true },
+                )
+            }
+        }
+
+        compose.onNodeWithText("Back").performClick()
+
+        assertEquals(true, backTapped)
+    }
+
+    @Test
+    fun `shows a title alongside the back affordance`() {
+        compose.setContent {
+            JinatraTheme {
+                PresetScreen(presets = listOf(balanced, frugal), onSave = {}, onDelete = {}, onBack = {})
+            }
+        }
+
+        compose.onNodeWithText("Presets").assertIsDisplayed()
+        compose.onNodeWithText("Back").assertIsDisplayed()
+    }
 }

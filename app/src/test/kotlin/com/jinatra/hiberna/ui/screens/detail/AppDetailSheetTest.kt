@@ -30,8 +30,16 @@ import org.robolectric.annotation.GraphicsMode
  * device needed - the brief's `connectedDebugAndroidTest` spec predates
  * GateScreenTest/BulkBarTest moving this pattern to `src/test`; see those
  * files' docs for why.
+ *
+ * Class-level `w360dp-h640dp`: Robolectric's unspecified default is a
+ * 320x470dp window (confirmed by direct measurement) - shorter than any
+ * shipping Android device, and too short for this sheet's tallest case (a
+ * sensitive row's explanation box, picker, switch and button all at once)
+ * once Task 2's own top bar/close affordance added its height on top. See
+ * `AppListScreenTest`'s doc for the same reasoning applied there.
  */
 @RunWith(RobolectricTestRunner::class)
+@Config(qualifiers = "w360dp-h640dp")
 class AppDetailSheetTest {
 
     @get:Rule val compose = createComposeRule()
@@ -249,5 +257,44 @@ class AppDetailSheetTest {
         compose.onAllNodesWithText("Hibernate", substring = true).fetchSemanticsNodes().let {
             assertEquals(0, it.size)
         }
+    }
+
+    // --- v1.1 navigation: a close affordance, not only the back gesture and ---
+    // --- the scrim behind this sheet (MainActivity's own doc).             ---
+
+    @Test
+    fun `tapping Close reports the callback`() {
+        var closed = 0
+        compose.setContent {
+            JinatraTheme {
+                AppDetailSheet(
+                    row = sensitiveRow, overridden = false,
+                    onActivityChange = {}, onDataChange = {},
+                    onOverrideChange = {}, onOpenSettings = {},
+                    onClose = { closed++ },
+                )
+            }
+        }
+
+        compose.onNodeWithText("Close").performClick()
+
+        assertEquals(1, closed)
+    }
+
+    @Test
+    fun `still shows the app's label and package alongside the close affordance`() {
+        compose.setContent {
+            JinatraTheme {
+                AppDetailSheet(
+                    row = sensitiveRow, overridden = false,
+                    onActivityChange = {}, onDataChange = {},
+                    onOverrideChange = {}, onOpenSettings = {},
+                )
+            }
+        }
+
+        compose.onNodeWithText("Messages").assertIsDisplayed()
+        compose.onNodeWithText("com.example.sms").assertIsDisplayed()
+        compose.onNodeWithText("Close").assertIsDisplayed()
     }
 }

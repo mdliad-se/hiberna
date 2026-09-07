@@ -24,6 +24,7 @@ import com.jinatra.hiberna.policy.BackgroundActivity
 import com.jinatra.hiberna.preset.DEFAULT_PRESETS
 import com.jinatra.hiberna.preset.Preset
 import com.jinatra.hiberna.ui.components.BrutalButton
+import com.jinatra.hiberna.ui.components.BrutalTopBar
 import com.jinatra.hiberna.ui.components.brutalSurface
 import com.jinatra.hiberna.ui.theme.InkColor
 import com.jinatra.hiberna.ui.theme.Paper
@@ -75,6 +76,7 @@ fun PresetScreen(
     presets: List<Preset>,
     onSave: (Preset) -> Unit,
     onDelete: (String) -> Unit,
+    onBack: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var armedForDeleteId by remember { mutableStateOf<String?>(null) }
@@ -83,6 +85,8 @@ fun PresetScreen(
         modifier = modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        BrutalTopBar(title = "Presets", onBack = onBack)
+
         if (presets.isEmpty()) {
             Column(
                 modifier = Modifier

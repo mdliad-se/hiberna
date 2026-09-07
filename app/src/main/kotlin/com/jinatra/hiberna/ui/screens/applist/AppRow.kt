@@ -3,7 +3,9 @@ package com.jinatra.hiberna.ui.screens.applist
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -149,12 +151,29 @@ fun AppRow(
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(16.dp),
     ) {
-        Text(text = row.app.label, style = MaterialTheme.typography.titleLarge, color = contentColor)
-        Text(
-            text = row.app.packageName,
-            style = MaterialTheme.typography.labelSmall,
-            color = contentColor,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = row.app.label, style = MaterialTheme.typography.titleLarge, color = contentColor)
+                Text(
+                    text = row.app.packageName,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = contentColor,
+                )
+            }
+            // F2 gap (Task 2 of v1.1): today a row is tappable and nothing on
+            // it says so. This chevron is a pure hint, not a second tap
+            // target of its own - `onClick`/`onLongClick` above already
+            // cover the whole row via this row's own `combinedClickable`.
+            Text(
+                text = "›",
+                style = MaterialTheme.typography.titleLarge,
+                color = contentColor,
+                modifier = Modifier.testTag("row-detail-affordance"),
+            )
+        }
         // The severity tier's badge - see this file's own doc above for why
         // Task 1's other three tiers get the treatments they do, and why the
         // WILL_BREAK case below is untouched from v1's sensitivity chip.

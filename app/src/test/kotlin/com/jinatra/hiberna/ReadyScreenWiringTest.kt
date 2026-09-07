@@ -48,6 +48,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import java.io.File
 
 /**
@@ -85,8 +86,16 @@ import java.io.File
  * dependency here is either synchronous (fakes) or backed by a real file on
  * a real temp dir (DataStore), so there is never a live cross-thread
  * collector for `createComposeRule`'s idling check to wait on forever.
+ *
+ * Class-level `w360dp-h640dp`: Robolectric's unspecified default is a
+ * 320x470dp window (confirmed by direct measurement) - shorter than any
+ * shipping Android device. Stacking the app list under Task 2's own top bar
+ * plus a sensitive row's detail sheet (its own top bar, explanation box,
+ * picker, switch and button) pushed a mid-sheet control below that budget.
+ * See `AppListScreenTest`'s doc for the same reasoning applied there.
  */
 @RunWith(RobolectricTestRunner::class)
+@Config(qualifiers = "w360dp-h640dp")
 class ReadyScreenWiringTest {
 
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()

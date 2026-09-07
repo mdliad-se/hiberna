@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package com.jinatra.hiberna
 
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageInfo
 import android.os.Looper
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import com.jinatra.hiberna.privilege.FakeShizukuPlatform
 import com.jinatra.hiberna.privilege.PrivilegeState
+import com.jinatra.hiberna.shell.ShellResult
 import com.jinatra.hiberna.shell.ShizukuShellBackend
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,6 +26,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.android.controller.ActivityController
+import org.robolectric.annotation.Config
 
 /**
  * `MainActivity` carries this app's most common flow - open the app, leave to
@@ -36,8 +42,16 @@ import org.robolectric.android.controller.ActivityController
  * container the activity should read. [createEmptyComposeRule] instead gives
  * this test the Compose semantics tree of whatever activity is on screen,
  * without owning that activity's lifecycle.
+ *
+ * Class-level `w360dp-h640dp`: Robolectric's unspecified default is a
+ * 320x470dp window (confirmed by direct measurement) - shorter than any
+ * shipping Android device, and too short for the real app list plus (once
+ * navigated there) Task 2's own detail sheet or preset screen, both of which
+ * now carry their own top bar. See `AppListScreenTest`'s doc for the same
+ * reasoning applied there.
  */
 @RunWith(RobolectricTestRunner::class)
+@Config(qualifiers = "w360dp-h640dp")
 class MainActivityTest {
 
     @get:Rule val compose = createEmptyComposeRule()
@@ -153,6 +167,83 @@ class MainActivityTest {
 
         awaitState(container, PrivilegeState.READY)
         compose.waitForIdle()
+        compose.onNodeWithText("Search apps").assertIsDisplayed()
+    }
+
+    /**
+     * `AppListViewModel.load()` (fired from `ReadyScreen`'s own `LaunchedEffect(Unit)`)
+     * hops onto `Dispatchers.IO` inside `PackageManagerAppRepository.load()` -
+     * a real background-thread hop `compose.waitForIdle()` alone does not
+     * drive, exactly like [awaitState] above for the gate's own refresh. This
+     * polls real wall-clock time, idling the main looper on every iteration,
+     * until the row this test needs is actually in the semantics tree.
+     */
+    private fun awaitNodeWithText(text: String, timeoutMs: Long = 5_000) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (compose.onAllNodesWithText(text).fetchSemanticsNodes().isEmpty()) {
+            check(System.currentTimeMillis() < deadline) { "node with text \"$text\" never appeared" }
+            shadowOf(Looper.getMainLooper()).idle()
+            Thread.sleep(10)
+        }
+    }
+
+    /** Installs a fake package into the shadow `PackageManager`, matching InstalledAppRepositoryTest's pattern. */
+    private fun installApp(pkg: String, label: String, uid: Int) {
+        val info = ApplicationInfo().apply {
+            packageName = pkg
+            this.uid = uid
+            nonLocalizedLabel = label
+            enabled = true
+        }
+        shadowOf(app.packageManager).installPackage(
+            PackageInfo().apply {
+                packageName = pkg
+                applicationInfo = info
+            },
+        )
+    }
+
+    @Test
+    fun `tapping Back on the Presets screen returns to the app list`() {
+        // Task 2: the back affordance itself, driven end to end through the
+        // real hand-rolled Nav in ReadyScreen - not just PresetScreenTest's
+        // direct callback check.
+        installContainer(FakeShizukuPlatform(binderAlive = true, installed = true, permissionGranted = true))
+
+        buildAndTrack().setup()
+        compose.waitForIdle()
+
+        compose.onNodeWithText("Presets").performClick()
+        compose.onNodeWithText("Search apps").assertDoesNotExist()
+
+        compose.onNodeWithText("Back").performClick()
+        compose.onNodeWithText("Search apps").assertIsDisplayed()
+    }
+
+    @Test
+    fun `tapping Close on the detail sheet returns to the app list`() {
+        // Task 2: the close affordance the detail sheet gets in addition to
+        // the back gesture and the scrim - MainActivity's own doc on why both
+        // exist.
+        installApp("com.example.game", "Game", 10456)
+        val platform = FakeShizukuPlatform(binderAlive = true, installed = true, permissionGranted = true)
+        // PolicyReader.read() treats a genuinely empty `deviceidle whitelist`
+        // result as a read failure (a real device's list is never empty), so
+        // FakeShizukuPlatform's own default empty-string script is not enough
+        // here - matches the non-default scripting AppListViewModelTest's own
+        // shell() helper already needs for the same command.
+        platform.script("deviceidle whitelist", ShellResult(0, "user,com.example.other,10999", ""))
+        installContainer(platform)
+
+        buildAndTrack().setup()
+        compose.waitForIdle()
+        awaitNodeWithText("Game")
+
+        compose.onNodeWithText("Game").performClick()
+        compose.onNodeWithText("Open in Settings").assertIsDisplayed()
+
+        compose.onNodeWithText("Close").performClick()
+        compose.onNodeWithText("Open in Settings").assertDoesNotExist()
         compose.onNodeWithText("Search apps").assertIsDisplayed()
     }
 }

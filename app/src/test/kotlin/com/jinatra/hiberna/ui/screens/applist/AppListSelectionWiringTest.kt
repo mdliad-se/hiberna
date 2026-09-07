@@ -33,6 +33,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import java.io.File
 
 /**
@@ -54,8 +55,16 @@ import java.io.File
  * synchronous/in-memory, so blocking the click callback introduces no real
  * delay, and it sidesteps needing to synchronise a separately-launched
  * coroutine with Compose's test clock.
+ *
+ * Class-level `w360dp-h640dp`: Robolectric's unspecified default is a
+ * 320x470dp window (confirmed by direct measurement) - shorter than any
+ * shipping Android device. Task 2's top bar and system-apps toggle pushed
+ * this screen's header content just past that budget, which starved the
+ * `LazyColumn` viewport enough that a real row stopped composing at all.
+ * `AppListScreenTest` pins the same qualifier for the identical reason.
  */
 @RunWith(RobolectricTestRunner::class)
+@Config(qualifiers = "w360dp-h640dp")
 class AppListSelectionWiringTest {
 
     @get:Rule val compose = createComposeRule()

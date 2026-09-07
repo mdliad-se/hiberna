@@ -147,6 +147,7 @@ class MainActivity : ComponentActivity() {
                 presets = presets,
                 onSave = { preset -> lifecycleScope.launch { container.presets.save(preset) } },
                 onDelete = { id -> lifecycleScope.launch { container.presets.delete(id) } },
+                onBack = { nav = Nav.List },
             )
 
             Nav.List, is Nav.Detail -> Box(modifier = Modifier.fillMaxSize()) {
@@ -157,6 +158,7 @@ class MainActivity : ComponentActivity() {
                         lifecycleScope.launch { model.setActivity(pkg, activity) }
                     },
                     onRowClick = { pkg -> nav = Nav.Detail(pkg) },
+                    onShowSystemChange = model::onShowSystemChange,
                     selected = selected,
                     presets = presets,
                     // F2 fix: each preset's own button previews its own
@@ -199,6 +201,7 @@ class MainActivity : ComponentActivity() {
                             lifecycleScope.launch { container.overrides.setOverridden(row.app.packageName, value) }
                         },
                         onOpenSettings = { openAppSettings(row.app.packageName) },
+                        onClose = { nav = Nav.List },
                         modifier = Modifier.align(Alignment.BottomCenter),
                     )
                 }

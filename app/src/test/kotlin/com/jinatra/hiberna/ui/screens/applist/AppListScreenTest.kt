@@ -4,6 +4,10 @@ package com.jinatra.hiberna.ui.screens.applist
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
@@ -12,12 +16,14 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.unit.dp
 import com.jinatra.hiberna.apps.InstalledApp
 import com.jinatra.hiberna.guardrail.Sensitivity
 import com.jinatra.hiberna.policy.BackgroundActivity
 import com.jinatra.hiberna.ui.theme.JinatraTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -28,8 +34,20 @@ import org.robolectric.annotation.GraphicsMode
 /**
  * Runs under Robolectric so it stays part of `:app:testDebugUnitTest` with no
  * device needed - same pattern as GateScreenTest.
+ *
+ * Class-level `w360dp-h640dp`: Robolectric's own unspecified default (a
+ * 320x470dp window, confirmed by probing `decorView` directly) is shorter
+ * than any shipping Android device - a Task 2 addition (the top bar, plus the
+ * system-apps toggle) pushed this screen's non-scrolling header content just
+ * past that unrealistic budget, cutting a real second row out of the
+ * `LazyColumn`'s composed viewport entirely. `w360dp-h640dp` matches what a
+ * few of this file's own pre-existing tests already pin explicitly for
+ * exactly this reason (see the widest-label layout test below); applying it
+ * to the whole class is the same call, made consistently rather than per
+ * method.
  */
 @RunWith(RobolectricTestRunner::class)
+@Config(qualifiers = "w360dp-h640dp")
 class AppListScreenTest {
 
     @get:Rule val compose = createComposeRule()
@@ -46,6 +64,13 @@ class AppListScreenTest {
         activity = BackgroundActivity.UNRESTRICTED,
         dataBlocked = false,
         sensitivity = Sensitivity.LIKELY_BREAKS,
+    )
+
+    private val systemRow = AppRowState(
+        app = InstalledApp("com.android.systemui", "System UI", 10023, isSystem = true, isEnabled = true),
+        activity = BackgroundActivity.OPTIMIZED,
+        dataBlocked = false,
+        sensitivity = Sensitivity.NONE,
     )
 
     @Test
@@ -293,5 +318,128 @@ class AppListScreenTest {
         }
 
         compose.onNodeWithText("Dismiss").assertDoesNotExist()
+    }
+
+    // --- v1.1 navigation: Task 2's top app bar, row-detail affordance and ---
+    // --- the system-apps toggle Task 11 plumbed with no UI at all.       ---
+
+    @Test
+    fun `each row shows a detail affordance hinting it is tappable`() {
+        // F2 gap: today a row is tappable (onRowClick) and nothing on the row
+        // itself says so - this is the discoverability affordance.
+        compose.setContent {
+            JinatraTheme {
+                AppListScreen(
+                    state = AppListState(rows = listOf(gameRow)),
+                    onQueryChange = {},
+                    onActivityChange = { _, _ -> },
+                    onRowClick = {},
+                )
+            }
+        }
+
+        compose.onNodeWithTag("row-detail-affordance", useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun `toggling show-system-apps reports the new value`() {
+        var lastShowSystem: Boolean? = null
+        compose.setContent {
+            JinatraTheme {
+                AppListScreen(
+                    state = AppListState(rows = listOf(gameRow), showSystem = false),
+                    onQueryChange = {},
+                    onActivityChange = { _, _ -> },
+                    onRowClick = {},
+                    onShowSystemChange = { lastShowSystem = it },
+                )
+            }
+        }
+
+        compose.onNodeWithText("Show system apps").performClick()
+
+        assertEquals(true, lastShowSystem)
+    }
+
+    @Test
+    fun `toggling show-system-apps actually filters system apps into and out of view`() {
+        // A system app is CAUTION-tier per the severity model (Task 1), so it
+        // now sorts alongside ordinary apps rather than being segregated -
+        // this drives the real toggle affordance through hoisted state
+        // mirroring AppListViewModel.reproject()'s own filter, so the row's
+        // appearance/disappearance is genuinely caused by the toggle, not
+        // just a callback firing.
+        compose.setContent {
+            JinatraTheme {
+                var showSystem by remember { mutableStateOf(false) }
+                val all = listOf(gameRow, systemRow)
+                AppListScreen(
+                    state = AppListState(
+                        rows = all.filter { showSystem || !it.app.isSystem },
+                        showSystem = showSystem,
+                    ),
+                    onQueryChange = {},
+                    onActivityChange = { _, _ -> },
+                    onRowClick = {},
+                    onShowSystemChange = { showSystem = it },
+                )
+            }
+        }
+
+        compose.onNodeWithText("System UI").assertDoesNotExist()
+
+        compose.onNodeWithText("Show system apps").performClick()
+
+        compose.onNodeWithText("System UI").assertIsDisplayed()
+    }
+
+    @Test
+    @Config(qualifiers = "w360dp-h640dp")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun `the top bar's title and Presets action both fit on one line at 360dp without overlapping`() {
+        // The judgement call the task brief asked to have reasoned through:
+        // the bar already carries a title plus the Presets action at 360dp,
+        // so this is a real measurement (not arithmetic) that neither one
+        // wraps or overflows the screen - this project has twice shipped
+        // layout claims that were reasoned and wrong.
+        compose.setContent {
+            JinatraTheme {
+                Column {
+                    Text(
+                        text = "Reference",
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.testTag("single-line-reference"),
+                    )
+                    AppListScreen(
+                        state = AppListState(rows = listOf(gameRow)),
+                        onQueryChange = {},
+                        onActivityChange = { _, _ -> },
+                        onRowClick = {},
+                        onOpenPresets = {},
+                    )
+                }
+            }
+        }
+
+        val singleLineHeight = compose.onNodeWithTag("single-line-reference").fetchSemanticsNode().size.height
+        val titleHeight = compose.onNodeWithText("hiberna").fetchSemanticsNode().size.height
+        assertEquals(
+            "expected the bar's title to lay out at its unconstrained single-line height, not wrapped",
+            singleLineHeight,
+            titleHeight,
+        )
+
+        val titleBounds = compose.onNodeWithText("hiberna").fetchSemanticsNode().boundsInRoot
+        val presetsBounds = compose.onNodeWithText("Presets").fetchSemanticsNode().boundsInRoot
+        assertTrue(
+            "expected the title to end before the Presets action begins, not overlapping it",
+            titleBounds.right <= presetsBounds.left,
+        )
+
+        val screenWidthPx = with(compose.density) { 360.dp.toPx() }
+        assertTrue(
+            "expected the Presets action to stay within the 360dp screen width, not overflow it",
+            presetsBounds.right <= screenWidthPx,
+        )
     }
 }

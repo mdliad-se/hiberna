@@ -19,6 +19,7 @@ import com.jinatra.hiberna.guardrail.Sensitivity
 import com.jinatra.hiberna.policy.BackgroundActivity
 import com.jinatra.hiberna.ui.components.ActivityPicker
 import com.jinatra.hiberna.ui.components.BrutalButton
+import com.jinatra.hiberna.ui.components.BrutalTopBar
 import com.jinatra.hiberna.ui.components.brutalSurface
 import com.jinatra.hiberna.ui.screens.applist.AppRowState
 import com.jinatra.hiberna.ui.theme.InkColor
@@ -78,6 +79,7 @@ fun AppDetailSheet(
     onDataChange: (Boolean) -> Unit,
     onOverrideChange: (Boolean) -> Unit,
     onOpenSettings: () -> Unit,
+    onClose: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -87,7 +89,7 @@ fun AppDetailSheet(
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text(text = row.app.label, style = MaterialTheme.typography.titleLarge)
+        BrutalTopBar(title = row.app.label, onBack = onClose, backLabel = "Close")
         Text(text = row.app.packageName, style = MaterialTheme.typography.labelSmall)
 
         if (row.sensitivity == Sensitivity.LIKELY_BREAKS) {

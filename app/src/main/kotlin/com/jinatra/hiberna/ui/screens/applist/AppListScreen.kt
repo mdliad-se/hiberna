@@ -10,17 +10,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.jinatra.hiberna.policy.BackgroundActivity
 import com.jinatra.hiberna.preset.Preset
 import com.jinatra.hiberna.ui.components.BrutalButton
+import com.jinatra.hiberna.ui.components.BrutalTopBar
 import com.jinatra.hiberna.ui.components.brutalSurface
 import com.jinatra.hiberna.ui.theme.InkColor
 import com.jinatra.hiberna.ui.theme.Paper
@@ -44,11 +48,14 @@ import com.jinatra.hiberna.ui.theme.Signal
  * the column. That keeps the search box and any error always on screen while
  * a long app list scrolls independently under them.
  *
- * [state.showSystem] has no toggle here: Task 11's "Produces" interface for
- * this screen exposed `onQueryChange`, `onActivityChange` and `onRowClick`
- * only, so showing/hiding system apps is plumbed through [AppListViewModel]
- * but has no affordance on this screen yet. (Task 12 adds the selection and
- * bulk-apply parameters below; see that note for their shape.)
+ * [state.showSystem] / [onShowSystemChange]: Task 11's "Produces" interface
+ * for this screen exposed `onQueryChange`, `onActivityChange` and
+ * `onRowClick` only, so showing/hiding system apps was plumbed through
+ * [AppListViewModel] with no affordance on this screen at all - a gap Task 2
+ * of v1.1 closes with the inline Switch+Text row below the search field (see
+ * that row's own comment for why it is not one of [BrutalTopBar]'s actions).
+ * (Task 12 adds the selection and bulk-apply parameters below; see that note
+ * for their shape.)
  *
  * The search field is a [BasicTextField] wrapped in [brutalSurface], not a
  * bare Material3 `TextField`: this is the most prominent element on the
@@ -85,6 +92,7 @@ fun AppListScreen(
     onQueryChange: (String) -> Unit,
     onActivityChange: (String, BackgroundActivity) -> Unit,
     onRowClick: (String) -> Unit,
+    onShowSystemChange: (Boolean) -> Unit = {},
     selected: Set<String> = emptySet(),
     presets: List<Preset> = emptyList(),
     skippedCountFor: (Preset) -> Int = { 0 },
@@ -96,19 +104,17 @@ fun AppListScreen(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(text = "hiberna", style = MaterialTheme.typography.titleLarge)
-            BrutalButton(
-                text = "Presets",
-                onClick = onOpenPresets,
-                fill = Paper,
-                contentColor = InkColor,
-            )
-        }
+        BrutalTopBar(
+            title = "hiberna",
+            actions = {
+                BrutalButton(
+                    text = "Presets",
+                    onClick = onOpenPresets,
+                    fill = Paper,
+                    contentColor = InkColor,
+                )
+            },
+        )
 
         BasicTextField(
             value = state.query,
@@ -183,6 +189,44 @@ fun AppListScreen(
             modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            // F3/Task 11 gap: AppListViewModel.showSystem/onShowSystemChange
+            // were fully plumbed through the view model with no affordance
+            // anywhere on this screen to reach them. Placed as the list's own
+            // first item - scrolling with it - rather than pinned above
+            // alongside the search field: a pinned toggle would permanently
+            // shrink the LazyColumn's own viewport (verified the hard way -
+            // it pushed a real row below the fold on a short screen), and it
+            // is not in BrutalTopBar's actions slot either, since that bar
+            // already carries a title plus the Presets action and
+            // AppListScreenTest measures that combination filling a 360dp
+            // screen on its own - a third control there risks exactly the
+            // crowding the task brief called out. This Switch+Text
+            // `toggleable` row follows the same convention
+            // AppDetailSheet/PresetScreen already use for their own switches.
+            item(key = "show-system-toggle") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .toggleable(
+                            value = state.showSystem,
+                            role = Role.Switch,
+                            onValueChange = onShowSystemChange,
+                        ),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // onCheckedChange = null: the enclosing Row's toggleable
+                    // above is the single tap target (label included),
+                    // matching every other Switch+Text row this app already
+                    // uses.
+                    Switch(checked = state.showSystem, onCheckedChange = null)
+                    Text(
+                        text = "Show system apps",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
+            }
+
             if (state.rows.isEmpty() && state.error == null && !state.loading) {
                 item {
                     Column(
