@@ -12,14 +12,28 @@ data class AppRowState(
     val activity: BackgroundActivity,
     val dataBlocked: Boolean,
     val sensitivity: Sensitivity,
+    /**
+     * H2: does this package declare a `dataSync`/`connectedDevice`/`specialUse`
+     * foreground service type - see
+     * [com.jinatra.hiberna.guardrail.SensitivityDetector.declaresExemptingForegroundServiceType].
+     * Defaults `false` so every pre-existing call site (none of which cares
+     * about this signal) keeps behaving exactly as before.
+     */
+    val hasExemptingForegroundServiceType: Boolean = false,
 ) {
     /**
      * The four-tier severity scale (see [severityOf]), derived from fields
      * this row already carries - never stored separately, so it can never
-     * drift out of sync with [app], [activity] or [sensitivity].
+     * drift out of sync with [app], [activity], [sensitivity] or
+     * [hasExemptingForegroundServiceType].
      */
     val severity: Severity
-        get() = severityOf(sensitivity = sensitivity, isSystem = app.isSystem, activity = activity)
+        get() = severityOf(
+            sensitivity = sensitivity,
+            isSystem = app.isSystem,
+            activity = activity,
+            hasExemptingForegroundServiceType = hasExemptingForegroundServiceType,
+        )
 }
 
 data class AppListState(

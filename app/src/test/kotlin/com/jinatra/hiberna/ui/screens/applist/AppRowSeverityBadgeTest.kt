@@ -17,6 +17,8 @@ import com.jinatra.hiberna.guardrail.Sensitivity
 import com.jinatra.hiberna.policy.BackgroundActivity
 import com.jinatra.hiberna.ui.theme.JinatraTheme
 import com.jinatra.hiberna.ui.theme.Mist
+import com.jinatra.hiberna.ui.theme.Paper
+import com.jinatra.hiberna.ui.theme.Product
 import com.jinatra.hiberna.ui.theme.Teal
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -144,6 +146,72 @@ class AppRowSeverityBadgeTest {
                 "match whatever is already behind it, never introduce a second solid colour",
             rowFillPx,
             badgeFillPx,
+        )
+    }
+
+    @Test
+    fun `a selected Caution row's badge border and label stay legible against Product, never a low-contrast Ink-on-Product`() {
+        // B2: the badge's border/label used to be a hardcoded InkColor, which
+        // is roughly 2:1 contrast against a selected row's Product fill -
+        // effectively invisible, exactly during the bulk-apply selection this
+        // badge exists to warn on. The badge's fill still blends with the row
+        // (outline-only stays outline-only), but its border must now track
+        // the row's own contentColor (Paper when selected) rather than a
+        // bare InkColor constant.
+        compose.setContent {
+            JinatraTheme {
+                AppRow(
+                    row = cautionRow,
+                    onClick = {},
+                    onActivityChange = {},
+                    modifier = Modifier.testTag("row"),
+                    selected = true,
+                )
+            }
+        }
+
+        val density = compose.density
+        val bitmap = bitmapOf(compose.activity)
+
+        val rowBounds = compose.onNodeWithTag("row").fetchSemanticsNode().boundsInRoot
+        val rowFillPx = with(density) {
+            bitmap.getPixel(
+                (rowBounds.left + 6.dp.toPx()).roundToInt(),
+                (rowBounds.top + 6.dp.toPx()).roundToInt(),
+            )
+        }
+
+        val badgeBounds = compose.onNodeWithTag("tier-badge-caution", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        val badgeFillPx = with(density) {
+            bitmap.getPixel(
+                (badgeBounds.left + 4.5.dp.toPx()).roundToInt(),
+                ((badgeBounds.top + badgeBounds.bottom) / 2f).roundToInt(),
+            )
+        }
+        // Just inside the badge's own 3px border stroke - the pixel a
+        // hardcoded InkColor border used to render at, now expected to be
+        // Paper (this row's selected contentColor) instead.
+        val badgeBorderPx = with(density) {
+            bitmap.getPixel(
+                (badgeBounds.left + 1.dp.toPx()).roundToInt(),
+                ((badgeBounds.top + badgeBounds.bottom) / 2f).roundToInt(),
+            )
+        }
+
+        assertEquals("expected a selected row to be filled with Product", Product.toArgb(), rowFillPx)
+        assertEquals(
+            "the badge stays outline-only even when selected: its fill must still match the " +
+                "row behind it (Product), never introduce a second solid colour",
+            rowFillPx,
+            badgeFillPx,
+        )
+        assertEquals(
+            "expected the badge's border to be Paper (this row's selected contentColor) so it " +
+                "stays visible against a Product fill, not the old hardcoded InkColor which is " +
+                "roughly 2:1 contrast against Product and effectively invisible",
+            Paper.toArgb(),
+            badgeBorderPx,
         )
     }
 

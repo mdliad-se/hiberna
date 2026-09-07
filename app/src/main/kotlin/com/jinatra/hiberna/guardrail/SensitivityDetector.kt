@@ -27,6 +27,23 @@ import kotlinx.coroutines.withContext
  */
 interface SensitivityDetector {
     suspend fun classify(packageName: String): Sensitivity
+
+    /**
+     * H2: does [packageName] declare a foreground service type - `dataSync`,
+     * `connectedDevice` or `specialUse` (see [EXEMPTING_FGS_TYPES]) - that is
+     * near-conclusive evidence someone (a VPN, a sync client, a sleep
+     * tracker, an automation app) deliberately keeps this app running in the
+     * background? [severityOf][com.jinatra.hiberna.severity.severityOf] uses
+     * this to demote such a package out of [com.jinatra.hiberna.severity.Severity.RECOMMENDED]
+     * into [com.jinatra.hiberna.severity.Severity.SAFE] - never
+     * [com.jinatra.hiberna.severity.Severity.CAUTION], because no claim is
+     * being made about the package, hiberna simply has no business
+     * recommending a restriction for it. This is independent of [classify]:
+     * a package can be [Sensitivity.NONE] and still declare an exempting
+     * type, and the two questions (is it sensitive vs. is there evidence of
+     * a deliberate exemption) do not have to agree.
+     */
+    suspend fun declaresExemptingForegroundServiceType(packageName: String): Boolean
 }
 
 /**
@@ -183,6 +200,16 @@ class PlatformSensitivityDetector(
                 }
                 info.packageName to combined
             }
+
+    // H2: reuses the exact same cached, device-wide query classify() already
+    // pays for above - no second getInstalledPackages(GET_SERVICES) Binder
+    // call just to answer this second question about the same data.
+    override suspend fun declaresExemptingForegroundServiceType(packageName: String): Boolean =
+        withContext(Dispatchers.IO) {
+            hasExemptingForegroundServiceType(
+                foregroundServiceTypesResult.getOrDefault(emptyMap())[packageName] ?: 0,
+            )
+        }
 }
 
 // LOCATION and MEDIA_PLAYBACK have existed since API 29, below minSdk 30 for
@@ -211,7 +238,35 @@ internal val QUALIFYING_FGS_TYPES: Int = ServiceInfo.FOREGROUND_SERVICE_TYPE_LOC
 internal fun hasQualifyingForegroundServiceType(foregroundServiceType: Int): Boolean =
     foregroundServiceType and QUALIFYING_FGS_TYPES != 0
 
-class FakeSensitivityDetector(private val sensitive: Set<String>) : SensitivityDetector {
+// H2: DATA_SYNC and CONNECTED_DEVICE have existed since API 29, same as
+// LOCATION/MEDIA_PLAYBACK above, so always safe to reference below minSdk 30.
+// SPECIAL_USE was only added in API 34, same situation as HEALTH above - the
+// constant is still a compile-time literal (never throws to reference), but
+// a service parsed on an API < 34 device can never carry that bit, so the
+// SDK_INT guard documents that rather than changing behavior.
+internal val EXEMPTING_FGS_TYPES: Int = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or
+    ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+    } else {
+        0
+    }
+
+/**
+ * The pure decision behind [PlatformSensitivityDetector.declaresExemptingForegroundServiceType]
+ * above, unit-testable with plain Int literals for the same reason
+ * [hasQualifyingForegroundServiceType] is - see that function's own doc.
+ */
+internal fun hasExemptingForegroundServiceType(foregroundServiceType: Int): Boolean =
+    foregroundServiceType and EXEMPTING_FGS_TYPES != 0
+
+class FakeSensitivityDetector(
+    private val sensitive: Set<String>,
+    private val exemptingForegroundServiceType: Set<String> = emptySet(),
+) : SensitivityDetector {
     override suspend fun classify(packageName: String): Sensitivity =
         if (packageName in sensitive) Sensitivity.LIKELY_BREAKS else Sensitivity.NONE
+
+    override suspend fun declaresExemptingForegroundServiceType(packageName: String): Boolean =
+        packageName in exemptingForegroundServiceType
 }

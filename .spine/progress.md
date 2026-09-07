@@ -272,3 +272,26 @@ parsers, the policy state machine, the guardrail predicate and the persistence
 layer - and in the fact that a silently broken privilege layer surfaces as a
 visible error rather than "nothing restricted". They justify nothing about the
 seam itself. The first device run is a FIRST run, not a confirmation.
+
+=== v1.1 TASK 2 FINAL-REVIEW FIXES (recorded gaps, not fixed) ===
+Three must-fix bugs (B1-B3), one design correction (H2) and two medium items
+(M1-M2) from the final whole-branch review were fixed in one commit (259
+tests). The following were explicitly recorded rather than fixed, per that
+review's instruction:
+  - H1: RECOMMENDED requires UNRESTRICTED, which requires battery-
+    whitelisting, so on a device where the user never touched battery
+    optimization the tier is near-empty and the list looks much like v1's.
+    There is also a loop it creates: set Unrestricted -> row says "Worth
+    restricting" -> set Restricted -> badge disappears.
+  - H3 (re-scored): SensitivityDetector's `by lazy` sources never re-evaluate
+    for the process lifetime. In v1 one transient throw cost a false-positive
+    skip. Now it makes every app UNKNOWN -> every app CAUTION -> the tier
+    sort collapses to one bucket -> every bulk apply skips everything, with
+    no in-app explanation and recovery only by process death. Worth
+    re-evaluating per `load()` or surfacing a banner in a follow-up.
+  - M3: PolicyApplier.isAlreadyUnblacklisted matches on the message text "not
+    blacklisted". If cmd netpolicy's wording changes, the failure mode is a
+    silent return of the original ship-blocking bug. Add to the release
+    checklist: device-verify one restore-to-unrestricted per OS version.
+  - M4: the stock rounded Material3 Switch is now on the app list, the
+    primary surface, not just secondary screens.

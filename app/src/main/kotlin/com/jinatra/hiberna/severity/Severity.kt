@@ -87,17 +87,28 @@ enum class Severity {
  * 4. Otherwise, [activity] `== `[BackgroundActivity.UNRESTRICTED] (battery
  *    whitelisted, or appops-allowed with a whitelist entry - see
  *    `CurrentPolicy.backgroundActivityFor`, where the whitelist already wins
- *    over the appops flag) is [Severity.RECOMMENDED].
+ *    over the appops flag) is [Severity.RECOMMENDED] - **unless**
+ *    [hasExemptingForegroundServiceType] is true (H2, added after the tier
+ *    first shipped): a whitelist entry on a user-installed app is
+ *    near-conclusive evidence someone deliberately exempted it (a VPN, a
+ *    sync client, a sleep tracker, an automation app), and a package
+ *    declaring `dataSync`, `connectedDevice` or `specialUse` - see
+ *    [com.jinatra.hiberna.guardrail.SensitivityDetector.declaresExemptingForegroundServiceType] -
+ *    is exactly the shape of app that gets exempted for a reason this
+ *    detector cannot see. Demoted to [Severity.SAFE], not [Severity.CAUTION]:
+ *    no claim is being made about the package one way or the other, hiberna
+ *    simply has no business recommending a restriction for it.
  * 5. Anything left over is [Severity.SAFE].
  */
 fun severityOf(
     sensitivity: Sensitivity,
     isSystem: Boolean,
     activity: BackgroundActivity,
+    hasExemptingForegroundServiceType: Boolean = false,
 ): Severity = when {
     sensitivity == Sensitivity.LIKELY_BREAKS -> Severity.WILL_BREAK
     sensitivity.isSensitive -> Severity.CAUTION
     isSystem -> Severity.CAUTION
-    activity == BackgroundActivity.UNRESTRICTED -> Severity.RECOMMENDED
+    activity == BackgroundActivity.UNRESTRICTED && !hasExemptingForegroundServiceType -> Severity.RECOMMENDED
     else -> Severity.SAFE
 }

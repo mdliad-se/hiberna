@@ -111,6 +111,90 @@ class SeverityTest {
         )
     }
 
+    // --- H2: RECOMMENDED must not target the exact apps a user deliberately ---
+    // --- exempted - a package declaring dataSync/connectedDevice/specialUse ---
+    // --- is near-conclusive evidence of a deliberate exemption (a VPN, a    ---
+    // --- sync client, a sleep tracker, an automation app), so it is        ---
+    // --- demoted to SAFE, never CAUTION: no claim is made either way.       ---
+
+    @Test
+    fun `an otherwise-RECOMMENDED app declaring dataSync is demoted to SAFE, not CAUTION`() {
+        assertEquals(
+            Severity.SAFE,
+            severityOf(
+                sensitivity = Sensitivity.NONE,
+                isSystem = false,
+                activity = BackgroundActivity.UNRESTRICTED,
+                hasExemptingForegroundServiceType = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `an otherwise-RECOMMENDED app declaring connectedDevice is demoted to SAFE, not CAUTION`() {
+        // Same assertion as the dataSync case above, kept as its own test
+        // rather than folded in: severityOf itself only sees one boolean, so
+        // this documents that connectedDevice (like specialUse below) is one
+        // of the three types the caller must fold into that boolean - see
+        // SensitivityDetectorTest for the per-type bitmask coverage.
+        assertEquals(
+            Severity.SAFE,
+            severityOf(
+                sensitivity = Sensitivity.NONE,
+                isSystem = false,
+                activity = BackgroundActivity.UNRESTRICTED,
+                hasExemptingForegroundServiceType = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `an otherwise-RECOMMENDED app declaring specialUse is demoted to SAFE, not CAUTION`() {
+        assertEquals(
+            Severity.SAFE,
+            severityOf(
+                sensitivity = Sensitivity.NONE,
+                isSystem = false,
+                activity = BackgroundActivity.UNRESTRICTED,
+                hasExemptingForegroundServiceType = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `an exempting foreground service type never promotes a non-RECOMMENDED case to anything else`() {
+        // The demotion only ever fires on the branch that would otherwise be
+        // RECOMMENDED - it must not change a WILL_BREAK, CAUTION or already-SAFE
+        // outcome.
+        assertEquals(
+            Severity.WILL_BREAK,
+            severityOf(
+                sensitivity = Sensitivity.LIKELY_BREAKS,
+                isSystem = false,
+                activity = BackgroundActivity.UNRESTRICTED,
+                hasExemptingForegroundServiceType = true,
+            ),
+        )
+        assertEquals(
+            Severity.CAUTION,
+            severityOf(
+                sensitivity = Sensitivity.NONE,
+                isSystem = true,
+                activity = BackgroundActivity.UNRESTRICTED,
+                hasExemptingForegroundServiceType = true,
+            ),
+        )
+        assertEquals(
+            Severity.SAFE,
+            severityOf(
+                sensitivity = Sensitivity.NONE,
+                isSystem = false,
+                activity = BackgroundActivity.RESTRICTED,
+                hasExemptingForegroundServiceType = true,
+            ),
+        )
+    }
+
     @Test
     fun `a non-sensitive non-system app that is not already unrestricted is SAFE`() {
         assertEquals(

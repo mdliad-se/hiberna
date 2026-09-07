@@ -72,6 +72,8 @@ class AppListViewModel(
                 activity = policy.backgroundActivityFor(app.packageName),
                 dataBlocked = policy.isDataBlocked(app.uid),
                 sensitivity = sensitivity.classify(app.packageName),
+                hasExemptingForegroundServiceType =
+                    sensitivity.declaresExemptingForegroundServiceType(app.packageName),
             )
         }
         _state.value = _state.value.copy(loading = false, error = null)
@@ -260,9 +262,23 @@ class AppListViewModel(
      * costs one extra shell round trip, not a full rescan of a possibly
      * 300-app device. See the task report for the fuller reasoning.
      *
-     * On failure, the row is left exactly as it was: [ApplyResult.Failed]
-     * already tells us the write did not fully land, and [ApplyResult.Failed.applied]
-     * names any levers that DID land first, since there is no rollback.
+     * On failure (M1, corrected after the two apply paths were found to
+     * disagree here): this still re-reads, exactly like [reflectBulk] already
+     * does for its own [BulkOutcome.failed] entries. [ApplyResult.Failed.applied]
+     * names any levers that DID land first, since there is no rollback - e.g.
+     * `Failed("battery", applied = ["appops"])` means the appops lever is
+     * real, on-device state now, not the row's stale pre-apply value. Leaving
+     * the row un-re-read after such a partial failure was not an invariant
+     * violation on its own (nothing shows the *requested* state), but it was
+     * an inconsistency with [reflectBulk] that would surface as a stale row
+     * surviving until the next edit happened to touch the same package. The
+     * re-read runs unconditionally, even when nothing landed at all - the
+     * same shape [reflectBulk] uses for [BulkOutcome.failed] regardless of
+     * whether that entry's own `applied` list is empty, so a single-edit
+     * failure and a bulk failure are re-read under the identical rule. If the
+     * re-read itself fails, the row is left as it was and only the original
+     * apply failure is surfaced - a second, stacked error would not tell the
+     * user anything the first one does not already.
      */
     private suspend fun applyAndReflect(desired: AppRowState) {
         val result = applier.apply(
@@ -310,6 +326,16 @@ class AppListViewModel(
             }
 
             is ApplyResult.Failed -> {
+                reader.read().onSuccess { policy ->
+                    val previous = all.firstOrNull { it.app.packageName == desired.app.packageName } ?: desired
+                    val freshUid = apps.uidOf(desired.app.packageName)
+                    val confirmed = previous.copy(
+                        activity = policy.backgroundActivityFor(desired.app.packageName),
+                        dataBlocked = freshUid?.let(policy::isDataBlocked) ?: previous.dataBlocked,
+                    )
+                    all = all.map { if (it.app.packageName == confirmed.app.packageName) confirmed else it }
+                    reproject()
+                }
                 _state.value = _state.value.copy(error = applyFailureMessage(desired.app.label, result))
             }
         }

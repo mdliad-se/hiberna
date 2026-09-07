@@ -48,6 +48,12 @@ fun Modifier.brutalSurface(
     fill: Color,
     shadow: Dp,
     pressed: Boolean = false,
+    // Defaults to InkColor, this element's border on every pre-existing call
+    // site: only a caller that needs to guarantee contrast against a fill
+    // that is not necessarily Cream/Paper/Mist (see AppRow's CAUTION badge,
+    // whose fill deliberately matches whatever row it sits on) ever passes
+    // something else.
+    borderColor: Color = InkColor,
 ): Modifier {
     val geometry = brutalGeometry(shadow, pressed)
     return this
@@ -63,5 +69,5 @@ fun Modifier.brutalSurface(
             }
         }
         .background(fill, RectangleShape)
-        .border(BorderWidth, InkColor, RectangleShape)
+        .border(BorderWidth, borderColor, RectangleShape)
 }

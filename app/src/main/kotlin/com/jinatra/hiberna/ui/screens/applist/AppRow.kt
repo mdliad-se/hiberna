@@ -85,11 +85,18 @@ import com.jinatra.hiberna.ui.theme.Teal
  *   what makes [Severity.RECOMMENDED]'s badge stand out as an actual signal
  *   rather than one badge among a wall of them.
  * - [Severity.CAUTION] is an outline-only badge - [brutalSurface] with a
- *   transparent fill, so only its Ink border and its label draw; its fill is
+ *   transparent fill, so only its border and its label draw; its fill is
  *   deliberately whatever is already behind it (this is the one tier most
  *   often paired with a system row's [Mist] fill, so it cannot reuse a solid
  *   colour without risking exactly the collision [Cream] was chosen to avoid
- *   for WILL_BREAK above). Next to WILL_BREAK's solid [Cream] chip and full
+ *   for WILL_BREAK above) - except on a *selected* row, whose own fill is
+ *   [Product]: a review finding caught that a hardcoded Ink border/label on
+ *   Product is roughly 2:1 contrast, effectively invisible, exactly during
+ *   the bulk-apply selection this badge exists to warn on. So the badge
+ *   tracks the row's own [contentColor] (Paper on a selected/Product row,
+ *   Ink otherwise) for both its border and its fill - still "whatever is
+ *   already behind it", just selected-aware rather than a bare constant. Next
+ *   to WILL_BREAK's solid [Cream] chip and full
  *   sentence, an outline-only badge reads as clearly quieter - the two are
  *   never confusable as "the same warning twice", which is the judgment call
  *   the task brief asked to have reasoned through: both tiers mean "be
@@ -207,15 +214,28 @@ fun AppRow(
                     "Caution"
                 },
                 style = MaterialTheme.typography.labelSmall,
-                color = InkColor,
+                // contentColor, not a hardcoded InkColor: the badge's fill is
+                // deliberately whatever is already behind it (see this file's
+                // own doc), and when the row is selected that fill is
+                // Product, not Paper/Mist - InkColor border/text on Product
+                // is roughly 2:1 contrast, i.e. invisible. contentColor
+                // already tracks the row's own selected state (Paper on
+                // Product, Ink otherwise), so reusing it here keeps the badge
+                // legible in both cases without hardcoding a second selected
+                // check - see AppRowSeverityBadgeTest's selected-row case.
+                color = contentColor,
                 modifier = Modifier
                     .testTag("tier-badge-caution")
-                    .brutalSurface(fill = Color.Transparent, shadow = 0.dp)
+                    .brutalSurface(
+                        fill = if (isSelected) Product else Color.Transparent,
+                        shadow = 0.dp,
+                        borderColor = contentColor,
+                    )
                     .padding(horizontal = 6.dp, vertical = 2.dp),
             )
 
             Severity.RECOMMENDED -> Text(
-                text = "Recommended",
+                text = "Worth restricting",
                 style = MaterialTheme.typography.labelSmall,
                 color = Paper,
                 modifier = Modifier

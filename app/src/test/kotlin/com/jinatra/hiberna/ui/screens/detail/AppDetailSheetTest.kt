@@ -58,6 +58,13 @@ class AppDetailSheetTest {
         sensitivity = Sensitivity.NONE,
     )
 
+    private val unknownRow = AppRowState(
+        app = InstalledApp("com.example.mystery", "Mystery", 10600, isSystem = false, isEnabled = true),
+        activity = BackgroundActivity.OPTIMIZED,
+        dataBlocked = false,
+        sensitivity = Sensitivity.UNKNOWN,
+    )
+
     @Test
     fun `explains why the app is flagged, naming the actual consequence`() {
         compose.setContent {
@@ -90,6 +97,48 @@ class AppDetailSheetTest {
 
         compose.onNodeWithText("notifications", substring = true).assertDoesNotExist()
         compose.onNodeWithText("Include it in bulk changes anyway").assertDoesNotExist()
+    }
+
+    // --- B1: an UNKNOWN row must get its own explanation, never LIKELY_BREAKS' ---
+    // --- claim, and it must still offer the override switch - otherwise it is ---
+    // --- a dead end, since bulk apply already skips UNKNOWN the same as a     ---
+    // --- confirmed hit and this is the only place to override that per package. ---
+
+    @Test
+    fun `an UNKNOWN row gets its own honest explanation and still offers the override switch`() {
+        compose.setContent {
+            JinatraTheme {
+                AppDetailSheet(
+                    row = unknownRow, overridden = false,
+                    onActivityChange = {}, onDataChange = {},
+                    onOverrideChange = {}, onOpenSettings = {},
+                )
+            }
+        }
+
+        compose.onNodeWithText("could not check", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Include it in bulk changes anyway").assertIsDisplayed()
+        // Never LIKELY_BREAKS' claim - hiberna never ran a successful check
+        // on this package, so it must not assert one did.
+        compose.onNodeWithText("handles messaging", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun `toggling the override switch on an UNKNOWN row reports the change`() {
+        var overridden: Boolean? = null
+        compose.setContent {
+            JinatraTheme {
+                AppDetailSheet(
+                    row = unknownRow, overridden = false,
+                    onActivityChange = {}, onDataChange = {},
+                    onOverrideChange = { overridden = it }, onOpenSettings = {},
+                )
+            }
+        }
+
+        compose.onNodeWithText("Include it in bulk changes anyway").performClick()
+
+        assertEquals(true, overridden)
     }
 
     @Test

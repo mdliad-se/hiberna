@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.jinatra.hiberna.guardrail.Sensitivity
+import com.jinatra.hiberna.guardrail.isSensitive
 import com.jinatra.hiberna.policy.BackgroundActivity
 import com.jinatra.hiberna.ui.components.ActivityPicker
 import com.jinatra.hiberna.ui.components.BrutalButton
@@ -35,27 +36,41 @@ import com.jinatra.hiberna.ui.theme.ShadowMd
  * drifting apart the same way a reviewer already flagged for the guardrail
  * predicate this task's neighbour introduced (see
  * `AppListViewModel.skippedCount`'s doc) - a background-data switch, and, for
- * a [Sensitivity.LIKELY_BREAKS] app, the one place in the app a user learns
- * *why* it is flagged before choosing to override the guardrail.
+ * a [Sensitivity.isSensitive] app, the one place in the app a user learns
+ * *why* it is flagged (or, for [Sensitivity.UNKNOWN], that hiberna could not
+ * check) before choosing to override the guardrail.
  *
  * [overridden] is passed in rather than derived from [Sensitivity]: overrides
  * are per-package decisions persisted in `OverrideRepository`, not a state the
- * two-value [Sensitivity] enum encodes - see that repository's doc. This
+ * three-value [Sensitivity] enum encodes - see that repository's doc. This
  * composable only ever reflects the caller's value and reports a toggle via
  * [onOverrideChange]; it never reads or writes the repository itself.
  *
  * The explanation names the actual consequence - silenced notifications,
- * alarms that do not fire - rather than a generic "may break" caution. A user
- * deciding whether to override a guardrail needs to know what they are
- * risking, stated as a fact, not hedged with "might" or "may"; this is the
- * one place in the app that consequence is ever spelled out, so a vague
- * caution here would leave the user no better informed than the row's own
- * "May stop working if restricted" chip already did.
+ * alarms that do not fire - rather than a generic "may break" caution, for a
+ * [Sensitivity.LIKELY_BREAKS] row. A user deciding whether to override a
+ * guardrail needs to know what they are risking, stated as a fact, not
+ * hedged with "might" or "may"; this is the one place in the app that
+ * consequence is ever spelled out, so a vague caution here would leave the
+ * user no better informed than the row's own "May stop working if
+ * restricted" chip already did. A [Sensitivity.UNKNOWN] row gets its own,
+ * different copy - see the `when` below - rather than reusing that sentence:
+ * hiberna never ran a successful check on that package, so claiming it
+ * "handles messaging, alarms, calls or sign-in" would assert something that
+ * did not happen. This mirrors `AppRow`'s own "Couldn't check this app" vs
+ * "Caution" split for the identical reason (see that file's doc). A review
+ * finding (B1) caught the previous version of this file gating on
+ * `== LIKELY_BREAKS` alone: that left an [Sensitivity.UNKNOWN] app with no
+ * explanation box and, critically, no override switch at all - a dead end,
+ * since bulk apply already skips [Sensitivity.UNKNOWN] the same as a
+ * confirmed hit (see [com.jinatra.hiberna.policy.isSkippedByGuardrail]) but
+ * this was the only place such a package could ever be individually
+ * overridden into a bulk apply.
  *
  * The explanation box (and the override switch inside it) render only for a
- * flagged app: showing "why is this flagged" copy for a row that isn't
- * flagged would just be confusing noise, and there is nothing to override
- * for such a row anyway.
+ * [Sensitivity.isSensitive] app: showing "why is this flagged" copy for a row
+ * that isn't sensitive at all would just be confusing noise, and there is
+ * nothing to override for such a row anyway.
  *
  * "Open in Settings" only ever fires [onOpenSettings] - this composable never
  * builds an `Intent` itself. `ACTION_APPLICATION_DETAILS_SETTINGS` is a
@@ -96,7 +111,7 @@ fun AppDetailSheet(
         BrutalTopBar(title = row.app.label, onBack = onClose, backLabel = "Close", nestedInSlab = true)
         Text(text = row.app.packageName, style = MaterialTheme.typography.labelSmall)
 
-        if (row.sensitivity == Sensitivity.LIKELY_BREAKS) {
+        if (row.sensitivity.isSensitive) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -105,9 +120,24 @@ fun AppDetailSheet(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    text = "This app handles messaging, alarms, calls or sign-in in the " +
-                        "background. Restricting it stops notifications from arriving and " +
-                        "alarms from firing.",
+                    text = if (row.sensitivity == Sensitivity.UNKNOWN) {
+                        // Distinct from the LIKELY_BREAKS copy below on
+                        // purpose - see AppRow's own doc for why the two
+                        // must never share a sentence, and never the same
+                        // specific claim ("handles messaging, alarms, calls
+                        // or sign-in"). This one is an admission, not a
+                        // judgment call: a detection query failed instead of
+                        // answering, so hiberna does not get to describe what
+                        // this app does - only that it could not check.
+                        "hiberna could not check this app - a detection query failed instead " +
+                            "of answering. Restricting it might be fine, or it might silently " +
+                            "stop something you rely on; hiberna genuinely does not know either " +
+                            "way."
+                    } else {
+                        "This app handles messaging, alarms, calls or sign-in in the " +
+                            "background. Restricting it stops notifications from arriving and " +
+                            "alarms from firing."
+                    },
                     style = MaterialTheme.typography.bodyLarge,
                 )
                 Row(

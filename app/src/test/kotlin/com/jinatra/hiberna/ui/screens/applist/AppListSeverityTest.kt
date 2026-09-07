@@ -69,11 +69,12 @@ class AppListSeverityTest {
     private fun vm(
         apps: List<InstalledApp>,
         sensitive: Set<String> = setOf("com.example.apple"),
+        exemptingForegroundServiceType: Set<String> = emptySet(),
     ): AppListViewModel = AppListViewModel(
         apps = FakeAppRepository(apps) as InstalledAppRepository,
         reader = PolicyReader(shell()),
         applier = PolicyApplier(shell(), FakeAppRepository(apps)),
-        sensitivity = FakeSensitivityDetector(sensitive),
+        sensitivity = FakeSensitivityDetector(sensitive, exemptingForegroundServiceType),
         bulk = BulkApplier(PolicyApplier(shell(), FakeAppRepository(apps))),
         overrides = DataStoreOverrideRepository(store()) as OverrideRepository,
     )
@@ -89,6 +90,23 @@ class AppListSeverityTest {
         assertEquals(Severity.SAFE, bySeverity.getValue("com.example.mango"))
         assertEquals(Severity.CAUTION, bySeverity.getValue("com.example.kiwi"))
         assertEquals(Severity.WILL_BREAK, bySeverity.getValue("com.example.apple"))
+    }
+
+    @Test
+    fun `H2 - a battery-whitelisted app declaring an exempting foreground service type is demoted to SAFE, not RECOMMENDED`() = runTest {
+        // zebra is battery-whitelisted (see shell() above) and otherwise
+        // earns RECOMMENDED (see the first test in this file) - wired here
+        // through the real load() path, not severityOf directly, to prove
+        // AppListViewModel actually asks the detector and threads the answer
+        // into AppRowState rather than only the pure function agreeing.
+        val model = vm(
+            listOf(recommendedApp),
+            exemptingForegroundServiceType = setOf("com.example.zebra"),
+        )
+        model.load()
+
+        val row = model.state.value.rows.first { it.app.packageName == "com.example.zebra" }
+        assertEquals(Severity.SAFE, row.severity)
     }
 
     @Test

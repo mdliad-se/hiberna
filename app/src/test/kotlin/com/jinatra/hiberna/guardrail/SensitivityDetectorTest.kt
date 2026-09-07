@@ -145,6 +145,102 @@ class SensitivityDetectorTest {
         assertEquals(Sensitivity.NONE, detector.classify(pkg))
     }
 
+    // --- H2: RECOMMENDED must not target apps a user deliberately exempted. ---
+    // --- resolveForegroundServiceTypes() already computes the per-package  ---
+    // --- bitmask classify() uses above; declaresExemptingForegroundServiceType ---
+    // --- reuses that exact same cached query to answer a second question   ---
+    // --- about the same data, never a second getInstalledPackages() call.  ---
+
+    @Test
+    fun `declares an exempting foreground service type for a package with a dataSync service`() = runTest {
+        val pkg = "com.example.synccleint"
+        val installed = installPackageWithForegroundServiceType(
+            pkg,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+        )
+        if (!installed) return@runTest
+        val detector = PlatformSensitivityDetector(context, staticList = emptySet())
+
+        assertTrue(detector.declaresExemptingForegroundServiceType(pkg))
+    }
+
+    @Test
+    fun `declares an exempting foreground service type for a package with a connectedDevice service`() = runTest {
+        val pkg = "com.example.wearcompanion"
+        val installed = installPackageWithForegroundServiceType(
+            pkg,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
+        )
+        if (!installed) return@runTest
+        val detector = PlatformSensitivityDetector(context, staticList = emptySet())
+
+        assertTrue(detector.declaresExemptingForegroundServiceType(pkg))
+    }
+
+    @Test
+    fun `declares an exempting foreground service type for a package with a specialUse service`() = runTest {
+        val pkg = "com.example.automation"
+        val installed = installPackageWithForegroundServiceType(
+            pkg,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+        )
+        if (!installed) return@runTest
+        val detector = PlatformSensitivityDetector(context, staticList = emptySet())
+
+        assertTrue(detector.declaresExemptingForegroundServiceType(pkg))
+    }
+
+    @Test
+    fun `does not declare an exempting foreground service type for a package whose service is unrelated`() = runTest {
+        val pkg = "com.example.camera"
+        val installed = installPackageWithForegroundServiceType(
+            pkg,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA,
+        )
+        if (!installed) return@runTest
+        val detector = PlatformSensitivityDetector(context, staticList = emptySet())
+
+        assertFalse(detector.declaresExemptingForegroundServiceType(pkg))
+    }
+
+    // --- the pure bitmask decision behind the exempting check above: plain ---
+    // --- Int literals, same reasoning as hasQualifyingForegroundServiceType's ---
+    // --- own coverage below. ---
+
+    @Test
+    fun `exempts a type carrying the dataSync bit`() {
+        assertTrue(hasExemptingForegroundServiceType(ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC))
+    }
+
+    @Test
+    fun `exempts a type carrying the connectedDevice bit`() {
+        assertTrue(hasExemptingForegroundServiceType(ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE))
+    }
+
+    @Test
+    fun `exempts a type carrying the specialUse bit`() {
+        assertTrue(hasExemptingForegroundServiceType(ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE))
+    }
+
+    @Test
+    fun `does not exempt a type carrying only an unrelated bit`() {
+        assertFalse(hasExemptingForegroundServiceType(ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA))
+    }
+
+    @Test
+    fun `does not exempt zero`() {
+        assertFalse(hasExemptingForegroundServiceType(0))
+    }
+
+    @Test
+    fun `does not exempt a qualifying (sensitive) type that carries no exempting bit`() {
+        // The qualifying and exempting masks are deliberately disjoint - a
+        // location/media-playback/health service is a WILL_BREAK signal, not
+        // evidence of a deliberate battery-optimization exemption, and the
+        // two must never overlap.
+        assertFalse(hasExemptingForegroundServiceType(ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION))
+    }
+
     // --- the pure bitmask decision behind the check above (Task 12 ---
     // --- precondition 2): tested directly with Int literals, so this ---
     // --- coverage cannot silently stop testing anything the way the ---

@@ -16,7 +16,9 @@ import com.jinatra.hiberna.policy.PolicyReader
 import com.jinatra.hiberna.preset.DataStoreOverrideRepository
 import com.jinatra.hiberna.preset.OverrideRepository
 import com.jinatra.hiberna.preset.Preset
+import com.jinatra.hiberna.severity.Severity
 import com.jinatra.hiberna.shell.FakeShellBackend
+import com.jinatra.hiberna.shell.ShellBackend
 import com.jinatra.hiberna.shell.ShellResult
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -84,6 +86,45 @@ class AppListViewModelTest {
         }
     }
 
+    /**
+     * M1/M2: a [ShellBackend] whose `dumpsys deviceidle whitelist` READ
+     * response (no sign) can disagree with what a naive "trust the request"
+     * design would show - it starts by reporting [targetPackage] NOT
+     * whitelisted, then flips to reporting it whitelisted only once the
+     * corresponding WRITE (`... whitelist +targetPackage`) has actually
+     * executed against [delegate] (M1's real-partial-success scenario), or
+     * unconditionally from construction (M2's write-succeeds-but-read-back-
+     * disagrees scenario, via [alwaysReportWhitelisted]) - simulating a
+     * device where the write landed but the system does not end up matching
+     * what was asked for. Every other command is passed straight through to
+     * [delegate] unchanged.
+     */
+    private class DisagreeingWhitelistShellBackend(
+        private val delegate: FakeShellBackend,
+        private val targetPackage: String,
+        private val alwaysReportWhitelisted: Boolean = false,
+    ) : ShellBackend {
+        override val isAvailable: Boolean = true
+        private var whitelistWriteLanded = false
+
+        override suspend fun exec(command: List<String>): ShellResult {
+            val joined = command.joinToString(" ")
+            if (joined == "dumpsys deviceidle whitelist +$targetPackage") {
+                whitelistWriteLanded = true
+                return delegate.exec(command)
+            }
+            if (joined == "dumpsys deviceidle whitelist") {
+                val reportWhitelisted = alwaysReportWhitelisted || whitelistWriteLanded
+                return if (reportWhitelisted) {
+                    ShellResult(0, "user,com.example.sms,10500\nuser,$targetPackage,10456", "")
+                } else {
+                    ShellResult(0, "user,com.example.sms,10500", "")
+                }
+            }
+            return delegate.exec(command)
+        }
+    }
+
     private fun shell() = FakeShellBackend().apply {
         script("appops query-op", ShellResult(0, "com.example.game", ""))
         script("deviceidle whitelist", ShellResult(0, "user,com.example.sms,10500", ""))
@@ -94,7 +135,7 @@ class AppListViewModelTest {
     }
 
     private fun vm(
-        shell: FakeShellBackend = shell(),
+        shell: ShellBackend = shell(),
         apps: InstalledAppRepository = FakeAppRepository(listOf(userApp, systemApp, smsApp)),
         overrides: OverrideRepository = DataStoreOverrideRepository(store()),
     ): AppListViewModel {
@@ -213,6 +254,39 @@ class AppListViewModelTest {
     }
 
     @Test
+    fun `M2 - a row's severity tier follows the read-back state, never the request, even when the write reports success`() = runTest {
+        // The central invariant this whole app rests on ("a tier comes from
+        // read-back state, never from the request") had no automated test
+        // before this - only a manual device run. This scripts the exact
+        // scenario that would catch an optimistic-UI regression: the write
+        // reports ApplyResult.Success, but the fake shell's scripted read
+        // responses never actually mutate, so the read-back disagrees with
+        // what was requested. If a future change computed Severity from
+        // `desired` (the request) instead of the re-read `confirmed` row,
+        // this would be the only test in the suite to notice.
+        val shell = shell()
+        val model = vm(shell)
+        model.load()
+
+        val before = model.state.value.rows.first { it.app.packageName == "com.example.game" }
+        // Not sensitive (FakeSensitivityDetector only flags com.example.sms),
+        // not system, currently RESTRICTED (per shell()'s scripted appops
+        // read) - SAFE, not yet RECOMMENDED.
+        assertEquals(Severity.SAFE, before.severity)
+
+        model.setActivity("com.example.game", BackgroundActivity.UNRESTRICTED)
+
+        val row = model.state.value.rows.first { it.app.packageName == "com.example.game" }
+        // Requesting UNRESTRICTED, if trusted outright, would earn
+        // RECOMMENDED (non-sensitive, non-system, "unrestricted"). The real
+        // read-back never changes (the fake shell's responses are static),
+        // so the confirmed activity is still not UNRESTRICTED and the tier
+        // must follow that read, not the request.
+        assertEquals(BackgroundActivity.RESTRICTED, row.activity)
+        assertEquals(Severity.SAFE, row.severity)
+    }
+
+    @Test
     fun `a successful apply does not re-scan every installed app`() = runTest {
         val counting = CountingAppRepository(FakeAppRepository(listOf(userApp, systemApp, smsApp)))
         val model = vm(apps = counting)
@@ -250,6 +324,49 @@ class AppListViewModelTest {
         val error = model.state.value.error!!
         assertTrue(error.contains("battery"))
         assertTrue(error.contains("appops"))
+    }
+
+    @Test
+    fun `M1 - a partial write failure re-reads real state, matching reflectBulk's own rule`() = runTest {
+        // The write's earlier levers (appops, battery) land for real before
+        // the later data lever fails - ApplyResult.Failed("data", applied =
+        // ["appops", "battery"]). Before M1, applyAndReflect's Failed branch
+        // re-read nothing, so the row would keep its stale pre-apply
+        // activity even though the battery lever's own applied=[...] list
+        // says otherwise. DisagreeingWhitelistShellBackend flips its
+        // whitelist READ only once the whitelist WRITE actually executes, so
+        // a passing assertion here is only possible if applyAndReflect
+        // actually re-reads after the failure, not because the fake happens
+        // to already agree.
+        val delegate = FakeShellBackend().apply {
+            script("appops query-op", ShellResult(0, "", "")) // nothing appops-restricted
+            script("deviceidle whitelist", ShellResult(0, "user,com.example.sms,10500", ""))
+            script("netpolicy list", ShellResult(0, "", "")) // nothing data-blocked
+            script("appops set", ShellResult(0, "", ""))
+            script("deviceidle whitelist +", ShellResult(0, "", ""))
+            script("netpolicy remove", ShellResult(1, "", "permission denied"))
+        }
+        val shell = DisagreeingWhitelistShellBackend(delegate, targetPackage = "com.example.game")
+        val model = vm(shell)
+        model.load()
+
+        val before = model.state.value.rows.first { it.app.packageName == "com.example.game" }
+        assertEquals(BackgroundActivity.OPTIMIZED, before.activity)
+
+        // UNRESTRICTED signs the battery-whitelist write with "+"; appops set
+        // (allow) also succeeds; the data lever (netpolicy remove, since
+        // dataBlocked stays false) is the one scripted to fail.
+        model.setActivity("com.example.game", BackgroundActivity.UNRESTRICTED)
+
+        assertNotNull(model.state.value.error)
+        assertTrue(model.state.value.error!!.contains("data"))
+        val row = model.state.value.rows.first { it.app.packageName == "com.example.game" }
+        assertEquals(
+            "the battery lever actually landed (see ApplyResult.Failed.applied) - a re-read " +
+                "must show it, not the stale pre-apply OPTIMIZED value",
+            BackgroundActivity.UNRESTRICTED,
+            row.activity,
+        )
     }
 
     @Test
