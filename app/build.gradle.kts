@@ -1,9 +1,41 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
+
+/**
+ * Release signing material, taken from the environment in CI or from an
+ * untracked keystore.properties locally. Both are absent from a plain checkout
+ * - F-Droid's build server and every outside contributor are in that position -
+ * so a missing keystore must leave the release build working and produce an
+ * unsigned APK for the builder to sign with its own key. A release build that
+ * needed the maintainer's private key would make a GPL-3 app unbuildable by
+ * anyone but its author.
+ */
+private val signingProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.isFile) file.inputStream().use { load(it) }
+}
+
+private fun signingMaterial(propertyName: String, environmentName: String): String? =
+    (System.getenv(environmentName) ?: signingProperties.getProperty(propertyName))
+        ?.takeIf { it.isNotBlank() }
+
+private val keystoreFile = signingMaterial("storeFile", "HIBERNA_KEYSTORE_FILE")
+private val keystorePassword = signingMaterial("storePassword", "HIBERNA_KEYSTORE_PASSWORD")
+private val keystoreAlias = signingMaterial("keyAlias", "HIBERNA_KEY_ALIAS")
+
+// The generated keystore uses one password for both the store and the key, so
+// the key password falls back to the store password rather than being required.
+private val keystoreKeyPassword =
+    signingMaterial("keyPassword", "HIBERNA_KEY_PASSWORD") ?: keystorePassword
+
+private val hasSigningMaterial =
+    keystoreFile != null && keystorePassword != null && keystoreAlias != null
 
 android {
     namespace = "com.jinatra.hiberna"
@@ -18,11 +50,35 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Null when no signing material was found, which leaves the release variant
+    // unsigned rather than failing - see the comment on signingProperties.
+    val releaseSigningConfig = if (hasSigningMaterial) {
+        signingConfigs.create("release") {
+            storeFile = file(keystoreFile!!)
+            storePassword = keystorePassword
+            keyAlias = keystoreAlias
+            keyPassword = keystoreKeyPassword
+        }
+    } else {
+        null
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = releaseSigningConfig
         }
+    }
+
+    // AGP embeds a Google-signed blob of dependency metadata in the APK by
+    // default. It is opaque, it is not byte-for-byte reproducible, and F-Droid
+    // rejects any build carrying it - which would cost hiberna the ability to
+    // ship there under its own signing key. See
+    // docs/spine/specs/2026-09-09-release-and-distribution-design.md.
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
     }
 
     compileOptions {

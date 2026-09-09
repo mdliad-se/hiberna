@@ -1,0 +1,36 @@
+Android already lets you stop an app from working in the background. The controls are just buried three taps deep in Settings, per app, in two different places, so nobody does it for more than the two or three apps that annoy them most.
+
+hiberna puts every installed app in one list with those same controls attached, adds multi-select so you can change a hundred apps at once, and warns you before you restrict something that will break if you do.
+
+It needs no computer, no root, and no account.
+
+<b>What it changes</b>
+
+hiberna is not a background service and does not stay resident. It reads and writes the same three system settings you could change by hand:
+
+<ul>
+<li><b>Background activity</b> - whether the app may run when you are not using it. Restricted, Optimized, or Unrestricted: the same three states Android's own battery screen shows.</li>
+<li><b>Battery whitelist</b> - whether the app is exempt from Doze and app-standby entirely.</li>
+<li><b>Background data</b> - whether the app may use mobile data while in the background.</li>
+</ul>
+
+Nothing is hidden. Every change hiberna makes is visible afterwards in Settings, and you can undo any of it there without hiberna installed.
+
+<b>Requirements</b>
+
+<ul>
+<li>Android 11 or newer</li>
+<li>Shizuku, started via Wireless debugging</li>
+</ul>
+
+Android 11 is a hard floor rather than a preference. Starting Shizuku without a computer relies on Wireless debugging, which older versions do not have. On Android 10 and below you would need to plug into a PC after every reboot, and this app would be making a promise it cannot keep.
+
+Shizuku stops when the phone reboots, so you start it again after each restart. That is a Shizuku characteristic, not something hiberna can work around.
+
+<b>Privacy</b>
+
+hiberna has no network permission, no accounts, no analytics and no telemetry. It cannot phone home because it cannot reach the network at all.
+
+<b>Licence</b>
+
+GPL-3.0-or-later. hiberna is a privileged system tool, so copyleft is deliberate: any fork must also be free software with its source available.
