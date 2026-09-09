@@ -7,7 +7,7 @@ channels without uninstalling and losing their presets and snapshots.
 | Channel | Who builds it | Who signs it | Effort |
 |---|---|---|---|
 | GitHub Releases | GitHub Actions | hiberna's key | Automatic on tag |
-| IzzyOnDroid | Takes the GitHub release APK, rebuilds to verify | hiberna's key | One inclusion request |
+| IzzyOnDroid | Nobody — it republishes the GitHub release APK after scanning it | hiberna's key | One inclusion request |
 | F-Droid official | F-Droid, from the git tag | hiberna's key, via a reproducible build | One merge request, weeks of review |
 
 **Droid-ify, Neo Store and the F-Droid client are not separate submissions.**
@@ -127,12 +127,24 @@ than an ordinary F-Droid-signed one:
 
 Do this first. A merge request that does not reproduce will sit unmerged.
 
+Install `fdroidserver` (the Debian/Ubuntu package `fdroidserver`, or
+`pip install fdroidserver`), then work inside a clone of `fdroiddata` with the
+recipe added:
+
 ```bash
-git clone https://gitlab.com/fdroid/fdroidserver
-# then, in a checkout of fdroiddata with the recipe added:
-fdroid build --verbose --on-server com.jinatra.hiberna:1
+git clone https://gitlab.com/fdroid/fdroiddata
+cd fdroiddata
+# add metadata/com.jinatra.hiberna.yml, then:
+fdroid readmeta
+fdroid lint com.jinatra.hiberna
+fdroid build --verbose com.jinatra.hiberna:1
 fdroid verify com.jinatra.hiberna
 ```
+
+`fdroid build` runs on the host. Add `--server` to build inside the buildserver
+VM instead, which is what F-Droid's own infrastructure uses and therefore the
+stricter test of reproducibility. `--on-server` is fdroidserver's internal flag
+for running *inside* that VM — not what you want from a shell.
 
 `fdroid verify` compares the rebuilt APK against the one fetched from
 `Binaries`. Only the signature block may differ.

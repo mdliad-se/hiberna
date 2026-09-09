@@ -41,26 +41,30 @@ Four repository secrets are required, under
 | `KEY_ALIAS` | `hiberna` |
 | `KEY_PASSWORD` | Key password (same as the keystore password) |
 
-Encode the keystore:
+Set them with the GitHub CLI, piping the encoded keystore straight in so it
+never lands in a file or in shell scrollback:
 
-```bash
+```powershell
 # Windows PowerShell
-[Convert]::ToBase64String([IO.File]::ReadAllBytes("$env:USERPROFILE\.keystores\hiberna\hiberna-release.jks"))
-
-# macOS or Linux
-base64 -w0 ~/.keystores/hiberna/hiberna-release.jks
+$ks = "$env:USERPROFILE\.keystores\hiberna\hiberna-release.jks"
+[Convert]::ToBase64String([IO.File]::ReadAllBytes($ks)) | gh secret set KEYSTORE_BASE64
 ```
 
-Then, with the GitHub CLI:
+```bash
+# macOS or Linux
+base64 -w0 ~/.keystores/hiberna/hiberna-release.jks | gh secret set KEYSTORE_BASE64
+```
+
+The remaining three prompt for their value when given no input:
 
 ```bash
-gh secret set KEYSTORE_BASE64 < keystore.b64
 gh secret set KEYSTORE_PASSWORD
 gh secret set KEY_ALIAS
 gh secret set KEY_PASSWORD
 ```
 
-Delete the `.b64` file afterwards. It is the keystore in plain text.
+If you do write the base64 to a file first, delete it afterwards — it is the
+keystore in plain text, and so is any terminal scrollback it was printed to.
 
 ## Cutting a release
 

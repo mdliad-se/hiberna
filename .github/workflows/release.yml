@@ -8,6 +8,7 @@ on:
     tags:
       - 'v*'
   # Lets a failed release be re-run against an existing tag without moving it.
+  # A moved tag breaks every published checksum and every reproducible build.
   workflow_dispatch:
     inputs:
       tag:
@@ -18,40 +19,86 @@ on:
 permissions:
   contents: write
 
+# Two pushes touching the same tag would race on the same release.
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  # The app's identity on every channel. A build signed with anything else must
+  # never be published: users cannot update across a signature change, they have
+  # to uninstall and lose their presets and snapshots. See docs/RELEASING.md.
+  EXPECTED_CERT_SHA256: '086e7fe1e83246d7b6687ad8febe62ad9d39a55ea1676b1ae53b089f8c1d675c'
+
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Check out the tagged source
-        uses: actions/checkout@v4
+        # Actions are pinned to commit SHAs, not tags: this job holds a signing
+        # key whose compromise cannot be undone, and a tag can be moved.
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           # Pinned to match the toolchain F-Droid must reproduce. Do not float.
           java-version: '21'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@48b5f213c81028ace310571dc5ec0fbbca0b2947 # v4
+
+      # Resolved once so the tag is never interpolated into a shell script,
+      # where a dispatch input carrying shell metacharacters would execute.
+      - name: Resolve the tag
+        run: echo "TAG=${{ inputs.tag || github.ref_name }}" >> "$GITHUB_ENV"
+
+      # All four secrets are checked together. Without this, a missing password
+      # leaves the signing material incomplete, the build silently produces an
+      # unsigned APK, and the run dies later with a bare "file not found".
+      - name: Assert the signing secrets are present
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          missing=''
+          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            eval "value=\${$name}"
+            [ -n "$value" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::missing repository secrets:$missing - see docs/RELEASING.md"
+            exit 1
+          fi
 
       # A release whose tag and versionName disagree cannot be rebuilt from its
       # own tag, which is exactly what F-Droid and every user verifying a
       # checksum rely on. Fail before anything is compiled.
       - name: Assert the tag matches versionName
         run: |
-          tag="${{ inputs.tag || github.ref_name }}"
-          version_name="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts)"
-          echo "tag=$tag versionName=$version_name"
-          if [ -z "$version_name" ]; then
-            echo "::error::could not read versionName from app/build.gradle.kts"
+          version_name="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -1)"
+          version_code="$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' app/build.gradle.kts | head -1)"
+          echo "tag=$TAG versionName=$version_name versionCode=$version_code"
+          if [ -z "$version_name" ] || [ -z "$version_code" ]; then
+            echo "::error::could not read versionName/versionCode from app/build.gradle.kts"
             exit 1
           fi
-          if [ "$tag" != "v$version_name" ]; then
-            echo "::error::tag $tag does not match versionName $version_name (expected v$version_name). Bump versionName or retag."
+          if [ "$TAG" != "v$version_name" ]; then
+            echo "::error::tag $TAG does not match versionName $version_name (expected v$version_name). Bump versionName or retag."
+            exit 1
+          fi
+          # F-Droid and IzzyOnDroid read release notes from this file and key it
+          # on versionCode, so a forgotten file ships with no notes at all.
+          changelog="fastlane/metadata/android/en-US/changelogs/${version_code}.txt"
+          if [ ! -s "$changelog" ]; then
+            echo "::error::$changelog is missing or empty - see docs/RELEASING.md step 2"
             exit 1
           fi
 
@@ -61,15 +108,15 @@ jobs:
       - name: Decode the signing keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-        run: |
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "::error::KEYSTORE_BASE64 is not set. See docs/RELEASING.md for the four required secrets."
-            exit 1
-          fi
-          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+        run: printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
 
       # assembleRelease already fans in verifyShizukuSeeds, which fails the
       # build if R8 dropped the privileged Shizuku entry point.
+      #
+      # --no-daemon is load-bearing, not tidiness: the signing material is read
+      # with System.getenv() at configuration time, and the test step above runs
+      # without it. A reused daemon would resolve the environment it was started
+      # with and silently produce an unsigned APK.
       - name: Build the signed release APK
         env:
           HIBERNA_KEYSTORE_FILE: ${{ runner.temp }}/release.jks
@@ -78,22 +125,34 @@ jobs:
           HIBERNA_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew --no-daemon assembleRelease
 
-      - name: Verify the APK is signed with the expected certificate
+      # apksigner verify alone exits 0 for any valid signature, so the
+      # fingerprint is compared explicitly. Publishing under the wrong
+      # certificate is the one unrecoverable mistake in this design.
+      - name: Verify the APK carries the expected certificate
         run: |
+          apk=app/build/outputs/apk/release/app-release.apk
+          if [ ! -f "$apk" ]; then
+            echo "::error::$apk is missing - the build produced an unsigned APK. Check the signing secrets against docs/RELEASING.md."
+            exit 1
+          fi
           build_tools="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
-          "$build_tools/apksigner" verify --print-certs --verbose \
-            app/build/outputs/apk/release/app-release.apk
+          "$build_tools/apksigner" verify --print-certs --verbose "$apk" | tee apksigner.txt
+          actual="$(sed -n 's/.*certificate SHA-256 digest: *\([0-9a-f]*\).*/\1/p' apksigner.txt | head -1)"
+          if [ "$actual" != "$EXPECTED_CERT_SHA256" ]; then
+            echo "::error::APK certificate SHA-256 is '$actual', expected '$EXPECTED_CERT_SHA256'. Do not publish this build."
+            exit 1
+          fi
+          echo "certificate verified: $actual"
 
       - name: Stage the release assets
         run: |
-          tag="${{ inputs.tag || github.ref_name }}"
           mkdir -p dist
-          cp app/build/outputs/apk/release/app-release.apk "dist/hiberna-${tag}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "dist/hiberna-${TAG}.apk"
           # R8 obfuscates the release build, so a user-submitted stack trace is
           # unreadable without the mapping file. It exposes nothing the GPL-3
           # source does not already.
-          cp app/build/outputs/mapping/release/mapping.txt "dist/mapping-${tag}.txt"
-          cd dist && sha256sum ./* > SHA256SUMS && cat SHA256SUMS
+          cp app/build/outputs/mapping/release/mapping.txt "dist/mapping-${TAG}.txt"
+          cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
 
       - name: Remove the keystore from the runner
         if: always()
@@ -103,12 +162,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="${{ inputs.tag || github.ref_name }}"
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" dist/* --clobber
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # Re-running against an already-published release would put an
+            # unreviewed build in front of users, which is the one thing the
+            # draft step exists to prevent.
+            if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != "true" ]; then
+              echo "::error::release $TAG is already published. Bump versionCode and versionName and cut a new release instead."
+              exit 1
+            fi
+            gh release upload "$TAG" dist/* --clobber
           else
-            gh release create "$tag" dist/* \
+            gh release create "$TAG" dist/* \
               --draft \
-              --title "hiberna $tag" \
+              --title "hiberna $TAG" \
               --generate-notes
           fi

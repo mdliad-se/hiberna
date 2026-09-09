@@ -6,7 +6,7 @@
 
 ## Problem
 
-hiberna v1.1 is finished and unreleased. The repository has no signing
+hiberna is feature-complete at versionName 1.0.0 / versionCode 1 and unreleased. The repository has no signing
 configuration, no continuous integration, and no store metadata, so there is
 nothing installable to hand a user and nothing submittable to a store. Three
 things are missing:
@@ -24,7 +24,7 @@ things are missing:
 | Signing key | New PKCS12 keystore, generated 2026-09-09 | Reusing an existing key (none exists) |
 | Channels | GitHub Releases, IzzyOnDroid, F-Droid official | Accrescent, Play Store |
 | F-Droid signature | Reproducible build, published under hiberna's own key | F-Droid's key (forces an uninstall to change channel) |
-| Release trigger | Tag push creates a draft release | Immediate publish; manual dispatch; keeping the key off CI |
+| Release trigger | Tag push creates a draft release, plus a manual dispatch restricted to re-running an existing tag | Immediate publish; keeping the key off CI; a dispatch that can build an arbitrary ref |
 
 Two lower-stakes points were settled without a question, and are recorded here
 because the build depends on both: the git tag must equal `versionName` or the
@@ -120,6 +120,13 @@ The release is a draft rather than published so a human sees the artefact before
 the public does. hiberna asks users for shell-level privilege; an automatic
 publish of an unreviewed build is the wrong default for a tool with that reach.
 
+The workflow also accepts a `workflow_dispatch` with a tag input, so a failed
+release can be re-run against a tag that has already been pushed. Moving a
+pushed tag would invalidate every checksum and every reproducible build already
+published against it, which makes re-running the only safe recovery. The
+dispatch path passes the same tag-versus-`versionName` assertion as a tag push,
+and refuses to touch a release that is no longer a draft.
+
 ## Section D — store metadata
 
 `fastlane/metadata/android/en-US/`, read by both IzzyOnDroid and F-Droid:
@@ -136,7 +143,9 @@ publish of an unreviewed build is the wrong default for a tool with that reach.
 - `docs/RELEASING.md` — cutting a release, the four secrets, keystore backup and
   the cost of losing it, and how to sign locally if CI is unavailable.
 - `docs/DISTRIBUTION.md` — the `fdroiddata` metadata recipe for
-  `com.jinatra.hiberna` with `Reproducible: yes`, how to verify the build
+  `com.jinatra.hiberna` declaring `Binaries:` and `AllowedAPKSigningKeys:`
+  (fdroiddata has no `Reproducible:` field; those two keys are what make a
+  build developer-signed and reproducible), how to verify the build
   locally with `fdroid build` before submitting, the IzzyOnDroid submission
   procedure, Obtainium setup for GitHub-release users, and a note that Droid-ify
   and Neo Store are clients that read these repositories rather than separate

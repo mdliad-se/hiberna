@@ -13,3 +13,6 @@ local.properties
 keystore.properties
 *.jks
 *.keystore
+
+# Release assets staged by .github/workflows/release.yml.
+/dist/
