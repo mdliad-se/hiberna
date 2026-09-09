@@ -36,10 +36,56 @@ data class AppRowState(
         )
 }
 
+/**
+ * Which slice of the list to show. Answers "what have I already changed",
+ * which the 1.0.0 list could not: the only ways to narrow it were the search
+ * field and the system-apps switch.
+ *
+ * [DATA_BLOCKED] sits alongside the three background-activity states rather
+ * than among them, because background data is an independent lever - an app
+ * can be [BackgroundActivity.UNRESTRICTED] and still have its background data
+ * blocked, so this is deliberately not a fourth activity state.
+ */
+enum class StateFilter(val label: String) {
+    ALL("All"),
+    RESTRICTED("Restricted"),
+    OPTIMIZED("Optimized"),
+    UNRESTRICTED("Unrestricted"),
+    DATA_BLOCKED("Data blocked"),
+    ;
+
+    /** Whether [row] belongs in this slice. */
+    fun matches(row: AppRowState): Boolean = when (this) {
+        ALL -> true
+        RESTRICTED -> row.activity == BackgroundActivity.RESTRICTED
+        OPTIMIZED -> row.activity == BackgroundActivity.OPTIMIZED
+        UNRESTRICTED -> row.activity == BackgroundActivity.UNRESTRICTED
+        DATA_BLOCKED -> row.dataBlocked
+    }
+}
+
+/**
+ * Row order. [SEVERITY] stays the default: the payoff of the severity scale is
+ * answering "where do I start", and nothing should regress for someone who
+ * relies on that order.
+ */
+enum class SortBy {
+    SEVERITY,
+}
+
 data class AppListState(
     val rows: List<AppRowState> = emptyList(),
     val query: String = "",
     val showSystem: Boolean = false,
+    val stateFilter: StateFilter = StateFilter.ALL,
+    val sortBy: SortBy = SortBy.SEVERITY,
+    /**
+     * How many apps each filter would show. Counted after the system-apps
+     * switch but *before* the search query, so a chip's number describes the
+     * device rather than the current search - a count that moves while you
+     * type cannot be read. Always holds an entry for every [StateFilter].
+     */
+    val stateCounts: Map<StateFilter, Int> = StateFilter.entries.associateWith { 0 },
     val loading: Boolean = false,
     /** Non-null means we could not read system state. Never conflate with "nothing restricted". */
     val error: String? = null,

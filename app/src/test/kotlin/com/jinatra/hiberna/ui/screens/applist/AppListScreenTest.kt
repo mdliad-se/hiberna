@@ -276,7 +276,74 @@ class AppListScreenTest {
             }
         }
 
+        compose.onNodeWithText("No apps to show.").assertIsDisplayed()
+    }
+
+    @Test
+    fun `the empty state blames the search only when there is a search`() {
+        compose.setContent {
+            JinatraTheme {
+                AppListScreen(
+                    state = AppListState(rows = emptyList(), query = "zeb"),
+                    onQueryChange = {},
+                    onActivityChange = { _, _ -> },
+                    onRowClick = {},
+                )
+            }
+        }
+
         compose.onNodeWithText("No apps match that search.").assertIsDisplayed()
+    }
+
+    @Test
+    fun `an empty state filter reads as an answer, not as a failed search`() {
+        compose.setContent {
+            JinatraTheme {
+                AppListScreen(
+                    state = AppListState(
+                        rows = emptyList(),
+                        stateFilter = StateFilter.RESTRICTED,
+                    ),
+                    onQueryChange = {},
+                    onActivityChange = { _, _ -> },
+                    onRowClick = {},
+                )
+            }
+        }
+
+        // "Nothing is restricted" is a legitimate answer about the device.
+        // Telling the user to fix their search - which they never typed -
+        // would send them looking for a problem that does not exist.
+        compose.onNodeWithText("Nothing is restricted right now.").assertIsDisplayed()
+    }
+
+    @Test
+    fun `the state filter chips carry their counts and report taps`() {
+        var tapped: StateFilter? = null
+        compose.setContent {
+            JinatraTheme {
+                AppListScreen(
+                    state = AppListState(
+                        rows = emptyList(),
+                        stateCounts = mapOf(
+                            StateFilter.ALL to 42,
+                            StateFilter.RESTRICTED to 7,
+                            StateFilter.OPTIMIZED to 30,
+                            StateFilter.UNRESTRICTED to 5,
+                            StateFilter.DATA_BLOCKED to 3,
+                        ),
+                    ),
+                    onQueryChange = {},
+                    onActivityChange = { _, _ -> },
+                    onRowClick = {},
+                    onStateFilterChange = { tapped = it },
+                )
+            }
+        }
+
+        compose.onNodeWithText("Restricted 7").assertIsDisplayed()
+        compose.onNodeWithText("Restricted 7").performClick()
+        assertEquals(StateFilter.RESTRICTED, tapped)
     }
 
     @Test

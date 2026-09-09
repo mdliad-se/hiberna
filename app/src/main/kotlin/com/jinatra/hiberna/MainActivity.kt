@@ -159,6 +159,7 @@ class MainActivity : ComponentActivity() {
                     },
                     onRowClick = { pkg -> nav = Nav.Detail(pkg) },
                     onShowSystemChange = model::onShowSystemChange,
+                    onStateFilterChange = model::onStateFilterChange,
                     selected = selected,
                     presets = presets,
                     // F2 fix: each preset's own button previews its own

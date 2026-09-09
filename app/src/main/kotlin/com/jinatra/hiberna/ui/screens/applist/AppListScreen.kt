@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.toggleable
@@ -16,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
@@ -93,6 +95,7 @@ fun AppListScreen(
     onActivityChange: (String, BackgroundActivity) -> Unit,
     onRowClick: (String) -> Unit,
     onShowSystemChange: (Boolean) -> Unit = {},
+    onStateFilterChange: (StateFilter) -> Unit = {},
     selected: Set<String> = emptySet(),
     presets: List<Preset> = emptyList(),
     skippedCountFor: (Preset) -> Int = { 0 },
@@ -203,6 +206,39 @@ fun AppListScreen(
             // crowding the task brief called out. This Switch+Text
             // `toggleable` row follows the same convention
             // AppDetailSheet/PresetScreen already use for their own switches.
+            // The state filter, above the system-apps toggle and inside the
+            // list for the same reason that toggle is: a pinned control
+            // permanently shrinks the LazyColumn's viewport and pushes real
+            // rows below the fold on a short screen.
+            //
+            // Scrolls horizontally rather than wrapping. Five chips carrying
+            // counts do not fit across 360dp, and a wrapped second line moves
+            // every row down on the narrowest screens this app supports.
+            item(key = "state-filter") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    StateFilter.entries.forEach { filter ->
+                        val isSelected = state.stateFilter == filter
+                        BrutalButton(
+                            // The count is part of the label, not a separate
+                            // badge: it answers "how many have I already
+                            // restricted" without a tap, which is the whole
+                            // reason the filter exists.
+                            text = "${filter.label} ${state.stateCounts[filter] ?: 0}",
+                            onClick = { onStateFilterChange(filter) },
+                            fill = if (isSelected) InkColor else Paper,
+                            contentColor = if (isSelected) Paper else InkColor,
+                            isSelected = isSelected,
+                            shadow = if (isSelected) 0.dp else ShadowSm,
+                        )
+                    }
+                }
+            }
+
             item(key = "show-system-toggle") {
                 Row(
                     modifier = Modifier
@@ -235,7 +271,23 @@ fun AppListScreen(
                             .brutalSurface(fill = Paper, shadow = 0.dp)
                             .padding(24.dp),
                     ) {
-                        Text("No apps match that search.", style = MaterialTheme.typography.bodyLarge)
+                        // An empty list has three different causes now, and
+                        // blaming the search for all of them tells a user to
+                        // clear a search box they never typed in. "Nothing is
+                        // restricted" is also a legitimate answer, not a
+                        // failure - a failed read sets state.error and is
+                        // rendered above instead.
+                        Text(
+                            text = when {
+                                state.query.isNotBlank() && state.stateFilter != StateFilter.ALL ->
+                                    "No ${state.stateFilter.label.lowercase()} apps match that search."
+                                state.query.isNotBlank() -> "No apps match that search."
+                                state.stateFilter != StateFilter.ALL ->
+                                    "Nothing is ${state.stateFilter.label.lowercase()} right now."
+                                else -> "No apps to show."
+                            },
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
                     }
                 }
             }

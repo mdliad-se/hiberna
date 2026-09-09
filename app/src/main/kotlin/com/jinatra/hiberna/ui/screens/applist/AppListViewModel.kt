@@ -89,6 +89,11 @@ class AppListViewModel(
         reproject()
     }
 
+    fun onStateFilterChange(filter: StateFilter) {
+        _state.value = _state.value.copy(stateFilter = filter)
+        reproject()
+    }
+
     fun onShowSystemChange(show: Boolean) {
         _state.value = _state.value.copy(showSystem = show)
         reproject()
@@ -371,9 +376,15 @@ class AppListViewModel(
     private fun reproject() {
         val current = _state.value
         val needle = current.query.trim().lowercase()
+        // Counted here, off the same visible set the chips describe: after the
+        // system-apps switch, before the query. See AppListState.stateCounts.
+        val visible = all.filter { current.showSystem || !it.app.isSystem }
         _state.value = current.copy(
-            rows = all
-                .filter { current.showSystem || !it.app.isSystem }
+            stateCounts = StateFilter.entries.associateWith { filter ->
+                visible.count(filter::matches)
+            },
+            rows = visible
+                .filter { current.stateFilter.matches(it) }
                 .filter { needle.isEmpty() || it.app.label.lowercase().contains(needle) }
                 // Recommended first - the whole payoff of the severity scale
                 // is answering "where do I start" (see the task brief), so
