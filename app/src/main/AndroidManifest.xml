@@ -1,7 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
+    <!--
+        Runtime per app. This permission is granted by appop rather than by a
+        dialog, and hiberna sets that appop through Shizuku only after the user
+        accepts an explicit one-time prompt - usage access reveals when every
+        app on the device was opened, which is more personal than the three
+        settings this app otherwise changes. Declining leaves everything else
+        working. Still declared here because the platform checks the
+        declaration as well as the appop.
+    -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
 
     <application
         android:name=".HibernaApp"
