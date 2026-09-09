@@ -102,8 +102,15 @@ jobs:
             exit 1
           fi
 
+      # testDebugUnitTest, not test: `test` also runs testReleaseUnitTest,
+      # which cannot pass by design. Robolectric instantiates HibernaApp, and
+      # with BuildConfig.DEBUG false the boot assertion in onCreate refuses to
+      # start a release binary wired over a fake Shizuku platform - which is
+      # exactly what that assertion exists to do. The release path is still
+      # covered: assertRealBackend is unit-tested directly, and
+      # assembleRelease fans in verifyShizukuSeeds.
       - name: Run the test suite
-        run: ./gradlew --no-daemon test
+        run: ./gradlew --no-daemon testDebugUnitTest
 
       - name: Decode the signing keystore
         env:
