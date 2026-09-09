@@ -19,6 +19,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.jinatra.hiberna.guardrail.Sensitivity
+import com.jinatra.hiberna.metrics.MetricFormat
 import com.jinatra.hiberna.policy.BackgroundActivity
 import com.jinatra.hiberna.severity.Severity
 import com.jinatra.hiberna.ui.components.ActivityPicker
@@ -170,7 +171,22 @@ fun AppRow(
                     style = MaterialTheme.typography.labelSmall,
                     color = contentColor,
                 )
-            }
+                // Battery and runtime, on the row rather than only in the
+                // detail sheet: the decision these numbers support is "which
+                // app do I restrict", and that is made while scanning the
+                // list. Behind eighty taps it would not help anyone.
+                //
+                // Each half degrades on its own - "unavailable · 3h 20m" is a
+                // normal state, not an error - and an unmeasured figure never
+                // renders as zero, or the app nobody measured would look like
+                // the cleanest one here.
+                Text(
+                    text = MetricFormat.rowSummary(row.metric),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = contentColor,
+                    modifier = Modifier.testTag("row-metrics"),
+                )
+}
             // F2 gap (Task 2 of v1.1): today a row is tappable and nothing on
             // it says so. This chevron is a pure hint, not a second tap
             // target of its own - `onClick`/`onLongClick` above already

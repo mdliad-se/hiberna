@@ -6,6 +6,9 @@ import com.jinatra.hiberna.apps.InstalledAppRepository
 import com.jinatra.hiberna.apps.PackageManagerAppRepository
 import com.jinatra.hiberna.guardrail.PlatformSensitivityDetector
 import com.jinatra.hiberna.guardrail.SensitivityDetector
+import com.jinatra.hiberna.metrics.MetricsReader
+import com.jinatra.hiberna.metrics.RealUsageSource
+import com.jinatra.hiberna.metrics.UsageSource
 import com.jinatra.hiberna.policy.BulkApplier
 import com.jinatra.hiberna.policy.PolicyApplier
 import com.jinatra.hiberna.policy.PolicyReader
@@ -65,6 +68,8 @@ class AppContainer(
     val applier: PolicyApplier by lazy { PolicyApplier(shell, apps) }
     val bulk: BulkApplier by lazy { BulkApplier(applier) }
     val sensitivity: SensitivityDetector by lazy { PlatformSensitivityDetector(context) }
+    val usage: UsageSource by lazy { RealUsageSource(context) }
+    val metrics: MetricsReader by lazy { MetricsReader(shell, usage) }
 
     /**
      * Both built over the exact same [Context.hibernaDataStore] instance -
@@ -91,6 +96,7 @@ class AppContainer(
         sensitivity = sensitivity,
         bulk = bulk,
         overrides = overrides,
+        metrics = metrics,
     )
 
     /** Releases the SDK listeners the gate registered, if it was ever built. */

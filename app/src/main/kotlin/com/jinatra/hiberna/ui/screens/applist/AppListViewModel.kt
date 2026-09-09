@@ -3,8 +3,10 @@ package com.jinatra.hiberna.ui.screens.applist
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.jinatra.hiberna.BuildConfig
 import com.jinatra.hiberna.apps.InstalledAppRepository
 import com.jinatra.hiberna.guardrail.SensitivityDetector
+import com.jinatra.hiberna.metrics.MetricsReader
 import com.jinatra.hiberna.policy.AppPolicy
 import com.jinatra.hiberna.policy.ApplyResult
 import com.jinatra.hiberna.policy.BackgroundActivity
@@ -35,6 +37,7 @@ class AppListViewModel(
     private val sensitivity: SensitivityDetector,
     private val bulk: BulkApplier,
     private val overrides: OverrideRepository,
+    private val metrics: MetricsReader,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AppListState())
@@ -66,7 +69,16 @@ class AppListViewModel(
             return
         }
 
-        all = apps.load().map { app ->
+        val installed = apps.load()
+
+        // Read in the same pass as the enumeration above, and against that
+        // exact list: batterystats reports uids, so joining it to a stale
+        // snapshot would attribute one app's drain to another - see the
+        // warning on InstalledApp.uid. Metrics never fail the load; they are
+        // advisory and degrade to "unavailable" per row.
+        val snapshot = metrics.read(installed)
+
+        all = installed.map { app ->
             AppRowState(
                 app = app,
                 activity = policy.backgroundActivityFor(app.packageName),
@@ -74,9 +86,15 @@ class AppListViewModel(
                 sensitivity = sensitivity.classify(app.packageName),
                 hasExemptingForegroundServiceType =
                     sensitivity.declaresExemptingForegroundServiceType(app.packageName),
+                metric = snapshot.of(app.packageName),
             )
         }
-        _state.value = _state.value.copy(loading = false, error = null)
+        _state.value = _state.value.copy(
+            loading = false,
+            error = null,
+            metricsWindow = snapshot.window,
+            needsUsageAccess = snapshot.needsUsageAccess,
+        )
         reproject()
     }
 
@@ -92,6 +110,25 @@ class AppListViewModel(
     fun onStateFilterChange(filter: StateFilter) {
         _state.value = _state.value.copy(stateFilter = filter)
         reproject()
+    }
+
+    fun onSortByChange(sortBy: SortBy) {
+        _state.value = _state.value.copy(sortBy = sortBy)
+        reproject()
+    }
+
+    /**
+     * Grants this app the appop UsageStatsManager checks, then reloads so the
+     * runtime column fills in. Called only from the one-time prompt: usage
+     * access reveals when every app on the device was opened.
+     */
+    suspend fun grantUsageAccess() {
+        if (metrics.grantUsageAccess(BuildConfig.APPLICATION_ID)) load()
+    }
+
+    /** The exact inverse, so the grant stays one tap from undone. */
+    suspend fun revokeUsageAccess() {
+        if (metrics.revokeUsageAccess(BuildConfig.APPLICATION_ID)) load()
     }
 
     fun onShowSystemChange(show: Boolean) {
@@ -386,12 +423,31 @@ class AppListViewModel(
             rows = visible
                 .filter { current.stateFilter.matches(it) }
                 .filter { needle.isEmpty() || it.app.label.lowercase().contains(needle) }
-                // Recommended first - the whole payoff of the severity scale
-                // is answering "where do I start" (see the task brief), so
-                // this sort is not cosmetic. Tiebreak alphabetical by label,
-                // the list's pre-existing order, preserved within a tier.
-                .sortedWith(compareBy({ it.severity.ordinal }, { it.app.label.lowercase() })),
+                .sortedWith(comparatorFor(current.sortBy)),
         )
+    }
+
+    /**
+     * [SortBy.SEVERITY] keeps its Recommended-first order with an alphabetical
+     * tiebreak: the payoff of the severity scale is answering "where do I
+     * start", so that sort is not cosmetic and stays the default.
+     *
+     * The metric sorts put rows with no figure **last**, never as zero. A
+     * broken battery parser would otherwise present every unmeasured app as
+     * the cleanest on the device, which is exactly the row a user then leaves
+     * alone.
+     */
+    private fun comparatorFor(sortBy: SortBy): Comparator<AppRowState> = when (sortBy) {
+        SortBy.SEVERITY ->
+            compareBy({ it.severity.ordinal }, { it.app.label.lowercase() })
+
+        SortBy.BATTERY_DESC -> compareBy<AppRowState> { it.metric?.batteryPercent == null }
+            .thenByDescending { it.metric?.batteryPercent ?: 0.0 }
+            .thenBy { it.app.label.lowercase() }
+
+        SortBy.RUNTIME_DESC -> compareBy<AppRowState> { it.metric?.foregroundMillis == null }
+            .thenByDescending { it.metric?.foregroundMillis ?: 0L }
+            .thenBy { it.app.label.lowercase() }
     }
 
     private companion object {

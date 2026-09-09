@@ -3,6 +3,8 @@ package com.jinatra.hiberna.ui.screens.applist
 
 import com.jinatra.hiberna.apps.InstalledApp
 import com.jinatra.hiberna.guardrail.Sensitivity
+import com.jinatra.hiberna.metrics.AppMetric
+import com.jinatra.hiberna.metrics.MetricsWindow
 import com.jinatra.hiberna.policy.BackgroundActivity
 import com.jinatra.hiberna.severity.Severity
 import com.jinatra.hiberna.severity.severityOf
@@ -20,6 +22,13 @@ data class AppRowState(
      * about this signal) keeps behaving exactly as before.
      */
     val hasExemptingForegroundServiceType: Boolean = false,
+    /**
+     * Battery and runtime for this package, or null when nothing was measured
+     * at all. Both fields inside it are independently nullable too: declining
+     * usage access costs runtime and not battery, and a moved `batterystats`
+     * format costs battery and not runtime.
+     */
+    val metric: AppMetric? = null,
 ) {
     /**
      * The four-tier severity scale (see [severityOf]), derived from fields
@@ -69,8 +78,10 @@ enum class StateFilter(val label: String) {
  * answering "where do I start", and nothing should regress for someone who
  * relies on that order.
  */
-enum class SortBy {
-    SEVERITY,
+enum class SortBy(val label: String) {
+    SEVERITY("Severity"),
+    BATTERY_DESC("Battery"),
+    RUNTIME_DESC("Runtime"),
 }
 
 data class AppListState(
@@ -86,6 +97,17 @@ data class AppListState(
      * type cannot be read. Always holds an entry for every [StateFilter].
      */
     val stateCounts: Map<StateFilter, Int> = StateFilter.entries.associateWith { 0 },
+    /**
+     * The window both metrics cover, for the UI to state outright. A number
+     * without its window is unreadable: ten minutes after unplugging, every
+     * app looks clean.
+     */
+    val metricsWindow: MetricsWindow? = null,
+    /**
+     * True when the `GET_USAGE_STATS` appop is not granted, so the screen can
+     * offer the one-time prompt rather than showing runtime as merely absent.
+     */
+    val needsUsageAccess: Boolean = false,
     val loading: Boolean = false,
     /** Non-null means we could not read system state. Never conflate with "nothing restricted". */
     val error: String? = null,

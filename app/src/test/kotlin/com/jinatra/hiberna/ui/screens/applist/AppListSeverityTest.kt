@@ -8,6 +8,8 @@ import com.jinatra.hiberna.apps.FakeAppRepository
 import com.jinatra.hiberna.apps.InstalledApp
 import com.jinatra.hiberna.apps.InstalledAppRepository
 import com.jinatra.hiberna.guardrail.FakeSensitivityDetector
+import com.jinatra.hiberna.metrics.FakeUsageSource
+import com.jinatra.hiberna.metrics.MetricsReader
 import com.jinatra.hiberna.policy.BulkApplier
 import com.jinatra.hiberna.policy.PolicyApplier
 import com.jinatra.hiberna.policy.PolicyReader
@@ -77,6 +79,7 @@ class AppListSeverityTest {
         sensitivity = FakeSensitivityDetector(sensitive, exemptingForegroundServiceType),
         bulk = BulkApplier(PolicyApplier(shell(), FakeAppRepository(apps))),
         overrides = DataStoreOverrideRepository(store()) as OverrideRepository,
+        metrics = metricsReader(),
     )
 
     @Test
@@ -128,4 +131,15 @@ class AppListSeverityTest {
             model.state.value.rows.map { it.app.packageName },
         )
     }
+
+    /**
+     * Metrics are advisory, and this file is not about them, so every view
+     * model here gets a reader whose two sources are both absent: no
+     * batterystats script on the shell, and usage access denied. That is a
+     * real device state - no privilege, prompt declined - and it must leave
+     * every assertion in this file untouched. The metric behaviour itself is
+     * covered by MetricsReaderTest.
+     */
+    private fun metricsReader(): MetricsReader =
+        MetricsReader(FakeShellBackend(isAvailable = false), FakeUsageSource(access = false))
 }

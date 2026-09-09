@@ -17,6 +17,8 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.jinatra.hiberna.apps.FakeAppRepository
 import com.jinatra.hiberna.apps.InstalledApp
 import com.jinatra.hiberna.guardrail.FakeSensitivityDetector
+import com.jinatra.hiberna.metrics.FakeUsageSource
+import com.jinatra.hiberna.metrics.MetricsReader
 import com.jinatra.hiberna.policy.BulkApplier
 import com.jinatra.hiberna.policy.PolicyApplier
 import com.jinatra.hiberna.policy.PolicyReader
@@ -94,6 +96,7 @@ class AppListSelectionWiringTest {
             sensitivity = FakeSensitivityDetector(emptySet()),
             bulk = BulkApplier(PolicyApplier(shell, apps)),
             overrides = DataStoreOverrideRepository(store()),
+            metrics = metricsReader(),
         )
     }
 
@@ -245,4 +248,15 @@ class AppListSelectionWiringTest {
         assertTrue(model.selected.value.isEmpty())
         assertEquals(1, rowClicks)
     }
+
+    /**
+     * Metrics are advisory, and this file is not about them, so every view
+     * model here gets a reader whose two sources are both absent: no
+     * batterystats script on the shell, and usage access denied. That is a
+     * real device state - no privilege, prompt declined - and it must leave
+     * every assertion in this file untouched. The metric behaviour itself is
+     * covered by MetricsReaderTest.
+     */
+    private fun metricsReader(): MetricsReader =
+        MetricsReader(FakeShellBackend(isAvailable = false), FakeUsageSource(access = false))
 }

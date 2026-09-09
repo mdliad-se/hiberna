@@ -8,6 +8,8 @@ import com.jinatra.hiberna.apps.FakeAppRepository
 import com.jinatra.hiberna.apps.InstalledApp
 import com.jinatra.hiberna.apps.InstalledAppRepository
 import com.jinatra.hiberna.guardrail.FakeSensitivityDetector
+import com.jinatra.hiberna.metrics.FakeUsageSource
+import com.jinatra.hiberna.metrics.MetricsReader
 import com.jinatra.hiberna.policy.BulkApplier
 import com.jinatra.hiberna.policy.PolicyApplier
 import com.jinatra.hiberna.policy.PolicyReader
@@ -69,6 +71,7 @@ class AppListFilterSortTest {
         sensitivity = FakeSensitivityDetector(emptySet()),
         bulk = BulkApplier(PolicyApplier(shell(), FakeAppRepository(apps))),
         overrides = DataStoreOverrideRepository(store()) as OverrideRepository,
+        metrics = metricsReader(),
     )
 
     private fun labels(model: AppListViewModel): List<String> =
@@ -188,6 +191,19 @@ class AppListFilterSortTest {
     }
 
     @Test
+    fun `sorts by battery, heaviest first, with unmeasured apps last`() = runTest {
+        val model = vm()
+        model.load()
+        model.onSortByChange(SortBy.BATTERY_DESC)
+
+        // No batterystats script on this file's shell, so nothing is measured
+        // and every row is unmeasured - the order then falls back to the
+        // alphabetical tiebreak rather than to an arbitrary one.
+        assertEquals(SortBy.BATTERY_DESC, model.state.value.sortBy)
+        assertEquals(listOf("Apple", "Mango", "Zebra"), labels(model))
+    }
+
+    @Test
     fun `an empty state filter is not an error`() = runTest {
         val model = vm(listOf(unrestricted))
         model.load()
@@ -198,4 +214,15 @@ class AppListFilterSortTest {
         assertEquals(emptyList<String>(), labels(model))
         assertEquals(null, model.state.value.error)
     }
+
+    /**
+     * Metrics are advisory, and this file is not about them, so every view
+     * model here gets a reader whose two sources are both absent: no
+     * batterystats script on the shell, and usage access denied. That is a
+     * real device state - no privilege, prompt declined - and it must leave
+     * every assertion in this file untouched. The metric behaviour itself is
+     * covered by MetricsReaderTest.
+     */
+    private fun metricsReader(): MetricsReader =
+        MetricsReader(FakeShellBackend(isAvailable = false), FakeUsageSource(access = false))
 }

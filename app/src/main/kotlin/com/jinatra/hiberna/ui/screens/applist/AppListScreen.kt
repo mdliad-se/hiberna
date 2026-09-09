@@ -21,8 +21,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import com.jinatra.hiberna.metrics.MetricFormat
 import com.jinatra.hiberna.policy.BackgroundActivity
 import com.jinatra.hiberna.preset.Preset
 import com.jinatra.hiberna.ui.components.BrutalButton
@@ -96,6 +98,8 @@ fun AppListScreen(
     onRowClick: (String) -> Unit,
     onShowSystemChange: (Boolean) -> Unit = {},
     onStateFilterChange: (StateFilter) -> Unit = {},
+    onSortByChange: (SortBy) -> Unit = {},
+    onGrantUsageAccess: () -> Unit = {},
     selected: Set<String> = emptySet(),
     presets: List<Preset> = emptyList(),
     skippedCountFor: (Preset) -> Int = { 0 },
@@ -234,6 +238,84 @@ fun AppListScreen(
                             contentColor = if (isSelected) Paper else InkColor,
                             isSelected = isSelected,
                             shadow = if (isSelected) 0.dp else ShadowSm,
+                        )
+                    }
+                }
+            }
+
+            // Sort, beside the filter for the same viewport reason. Severity
+            // stays first and selected by default: it is what answers "where
+            // do I start", and the two metric sorts are additions to it, not
+            // replacements.
+            item(key = "sort-control") {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = "Sort",
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(top = 12.dp, end = 4.dp),
+                        )
+                        SortBy.entries.forEach { option ->
+                            val isSelected = state.sortBy == option
+                            BrutalButton(
+                                text = option.label,
+                                onClick = { onSortByChange(option) },
+                                fill = if (isSelected) InkColor else Paper,
+                                contentColor = if (isSelected) Paper else InkColor,
+                                isSelected = isSelected,
+                                shadow = if (isSelected) 0.dp else ShadowSm,
+                            )
+                        }
+                    }
+                    // The window the numbers cover. Without it every app looks
+                    // clean ten minutes after the phone leaves the charger.
+                    Text(
+                        text = MetricFormat.window(state.metricsWindow),
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier
+                            .padding(top = 8.dp)
+                            .testTag("metrics-window"),
+                    )
+                }
+            }
+
+            // The one-time usage-access prompt. Usage access reveals when
+            // every app on the device was opened, which is more personal than
+            // the three settings this app otherwise changes - so it is asked
+            // for plainly and never granted silently, and declining leaves
+            // everything else working.
+            if (state.needsUsageAccess) {
+                item(key = "usage-access-prompt") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .brutalSurface(fill = Mist, shadow = ShadowSm)
+                            .padding(16.dp)
+                            .testTag("usage-access-prompt"),
+                    ) {
+                        Text(
+                            text = "Show runtime per app?",
+                            style = MaterialTheme.typography.titleLarge,
+                        )
+                        Text(
+                            text = "hiberna needs usage access to read how long each app " +
+                                "has run. That also reveals when every app on this device " +
+                                "was opened. Nothing leaves the phone, and you can turn it " +
+                                "off again here at any time.",
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                        BrutalButton(
+                            text = "Allow usage access",
+                            onClick = onGrantUsageAccess,
+                            fill = Paper,
+                            contentColor = InkColor,
+                            modifier = Modifier.padding(top = 16.dp),
                         )
                     }
                 }
