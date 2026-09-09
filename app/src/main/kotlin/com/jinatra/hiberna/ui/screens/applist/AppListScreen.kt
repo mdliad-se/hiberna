@@ -24,7 +24,6 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import com.jinatra.hiberna.metrics.MetricFormat
 import com.jinatra.hiberna.policy.BackgroundActivity
 import com.jinatra.hiberna.preset.Preset
 import com.jinatra.hiberna.ui.components.BrutalButton
@@ -210,20 +209,20 @@ fun AppListScreen(
             // crowding the task brief called out. This Switch+Text
             // `toggleable` row follows the same convention
             // AppDetailSheet/PresetScreen already use for their own switches.
-            // The state filter, above the system-apps toggle and inside the
-            // list for the same reason that toggle is: a pinned control
-            // permanently shrinks the LazyColumn's viewport and pushes real
-            // rows below the fold on a short screen.
-            //
-            // Scrolls horizontally rather than wrapping. Five chips carrying
-            // counts do not fit across 360dp, and a wrapped second line moves
-            // every row down on the narrowest screens this app supports.
-            item(key = "state-filter") {
+            // Filter and sort share ONE list item, and the metrics window
+            // moved to the detail sheet. Two separate control rows plus a
+            // window caption pushed real rows below the fold on a 360dp
+            // screen - the exact cost the show-system toggle's comment below
+            // already warns about, caught by AppListScreenTest rather than by
+            // guesswork. Chrome on this screen is charged against the list it
+            // exists to show, so it gets one row.
+            item(key = "list-controls") {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     StateFilter.entries.forEach { filter ->
                         val isSelected = state.stateFilter == filter
@@ -240,47 +239,26 @@ fun AppListScreen(
                             shadow = if (isSelected) 0.dp else ShadowSm,
                         )
                     }
-                }
-            }
 
-            // Sort, beside the filter for the same viewport reason. Severity
-            // stays first and selected by default: it is what answers "where
-            // do I start", and the two metric sorts are additions to it, not
-            // replacements.
-            item(key = "sort-control") {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Text(
-                            text = "Sort",
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(top = 12.dp, end = 4.dp),
-                        )
-                        SortBy.entries.forEach { option ->
-                            val isSelected = state.sortBy == option
-                            BrutalButton(
-                                text = option.label,
-                                onClick = { onSortByChange(option) },
-                                fill = if (isSelected) InkColor else Paper,
-                                contentColor = if (isSelected) Paper else InkColor,
-                                isSelected = isSelected,
-                                shadow = if (isSelected) 0.dp else ShadowSm,
-                            )
-                        }
-                    }
-                    // The window the numbers cover. Without it every app looks
-                    // clean ten minutes after the phone leaves the charger.
                     Text(
-                        text = MetricFormat.window(state.metricsWindow),
+                        text = "Sort",
                         style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier
-                            .padding(top = 8.dp)
-                            .testTag("metrics-window"),
+                        modifier = Modifier.padding(start = 8.dp),
                     )
+                    // Severity stays first and selected by default: it is what
+                    // answers "where do I start", so the two metric sorts are
+                    // additions to it rather than replacements.
+                    SortBy.entries.forEach { option ->
+                        val isSelected = state.sortBy == option
+                        BrutalButton(
+                            text = option.label,
+                            onClick = { onSortByChange(option) },
+                            fill = if (isSelected) InkColor else Paper,
+                            contentColor = if (isSelected) Paper else InkColor,
+                            isSelected = isSelected,
+                            shadow = if (isSelected) 0.dp else ShadowSm,
+                        )
+                    }
                 }
             }
 

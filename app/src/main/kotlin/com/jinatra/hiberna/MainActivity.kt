@@ -194,6 +194,7 @@ class MainActivity : ComponentActivity() {
                     AppDetailSheet(
                         row = row,
                         overridden = row.app.packageName in overridden,
+                        metricsWindow = listState.metricsWindow,
                         onActivityChange = { activity ->
                             lifecycleScope.launch { model.setActivity(row.app.packageName, activity) }
                         },

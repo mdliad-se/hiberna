@@ -13,10 +13,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.jinatra.hiberna.guardrail.Sensitivity
 import com.jinatra.hiberna.guardrail.isSensitive
+import com.jinatra.hiberna.metrics.MetricFormat
+import com.jinatra.hiberna.metrics.MetricsWindow
 import com.jinatra.hiberna.policy.BackgroundActivity
 import com.jinatra.hiberna.ui.components.ActivityPicker
 import com.jinatra.hiberna.ui.components.BrutalButton
@@ -99,6 +102,12 @@ fun AppDetailSheet(
     onOverrideChange: (Boolean) -> Unit,
     onOpenSettings: () -> Unit,
     onClose: () -> Unit = {},
+    /**
+     * The window [row]'s metrics cover. Null renders as "no measurement
+     * window" rather than being omitted: a figure with no window is
+     * unreadable, since everything looks small right after a charge.
+     */
+    metricsWindow: MetricsWindow? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -110,6 +119,52 @@ fun AppDetailSheet(
     ) {
         BrutalTopBar(title = row.app.label, onBack = onClose, backLabel = "Close", nestedInSlab = true)
         Text(text = row.app.packageName, style = MaterialTheme.typography.labelSmall)
+
+        // The full metric breakdown. The list row shows the same two numbers
+        // compressed to one line; this is where they get their window, their
+        // units, and the caveats that make them honest.
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .brutalSurface(fill = Mist, shadow = 0.dp)
+                .padding(16.dp)
+                .testTag("metrics-detail"),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(text = "Battery and runtime", style = MaterialTheme.typography.titleLarge)
+            Text(
+                text = MetricFormat.window(metricsWindow),
+                style = MaterialTheme.typography.labelSmall,
+            )
+            Text(
+                text = buildString {
+                    append("Battery: ")
+                    append(MetricFormat.battery(row.metric?.batteryPercent))
+                    row.metric?.batteryMah?.let { append(" (%.2f mAh)".format(it)) }
+                },
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Text(
+                text = "Runtime: ${MetricFormat.runtime(row.metric?.foregroundMillis)}",
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            if (row.metric?.batteryIsSharedUid == true) {
+                // batterystats attributes power to uids, not packages. Saying
+                // nothing here would present a whole uid group's drain as
+                // this one app's.
+                Text(
+                    text = "This app shares a user id with another installed app, so the " +
+                        "battery figure covers both.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+            if (row.metric?.batteryPercent != null) {
+                Text(
+                    text = "Battery use is Android's own estimate and may not match Settings.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
 
         if (row.sensitivity.isSensitive) {
             Column(
