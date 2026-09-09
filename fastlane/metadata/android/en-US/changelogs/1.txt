@@ -1,0 +1,9 @@
+First release.
+
+Every installed app in one list, with Android's own background controls
+attached: background activity, battery whitelist and background data.
+Multi-select to change many apps at once, with a warning before you restrict
+something that will break if you do. Presets and snapshots so a change can be
+reviewed and undone.
+
+Needs Android 11 or newer and Shizuku, started via Wireless debugging.

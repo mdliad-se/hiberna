@@ -1,0 +1,1 @@
+Stop apps running in the background. All of them, from one screen.

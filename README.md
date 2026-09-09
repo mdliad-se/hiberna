@@ -16,6 +16,31 @@ you restrict something that will break if you do.
 
 It needs no computer, no root, and no account.
 
+## Install
+
+Download the APK from [Releases](https://github.com/mdliad-se/hiberna/releases).
+
+For automatic updates without a store, add
+`https://github.com/mdliad-se/hiberna` to
+[Obtainium](https://github.com/ImranR98/Obtainium) and it will track releases
+directly.
+
+Every APK is signed with the same key on every channel, so you can switch
+between them without uninstalling. To check a download before installing it:
+
+```bash
+apksigner verify --print-certs hiberna-v1.0.0.apk
+```
+
+The signer certificate's SHA-256 digest must be:
+
+```
+08:6E:7F:E1:E8:32:46:D7:B6:68:7A:D8:FE:BE:62:AD:9D:39:A5:5E:A1:67:6B:1A:E5:3B:08:9F:8C:1D:67:5C
+```
+
+F-Droid and IzzyOnDroid listings are in progress — see
+[docs/DISTRIBUTION.md](docs/DISTRIBUTION.md).
+
 ## Requirements
 
 - Android 11 or newer
@@ -79,6 +104,10 @@ cd hiberna
 ```
 
 The APK lands in `app/build/outputs/apk/debug/`.
+
+`./gradlew assembleRelease` also works from a plain checkout and produces an
+**unsigned** APK, which will not install on a phone — signing material is not in
+the repository. Maintainers see [docs/RELEASING.md](docs/RELEASING.md).
 
 To run the tests:
 
